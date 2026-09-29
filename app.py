@@ -9,6 +9,7 @@ from docx.oxml.ns import qn
 import io
 import os
 import re
+import base64
 import subprocess
 import tempfile
 import pdfplumber
@@ -18,41 +19,80 @@ from datetime import datetime
 # Configuração da página e tema
 st.set_page_config(page_title="18º BPM — Gerador de Ordem de Serviço", page_icon="📑", layout="centered")
 
-# 🎨 MODO ESCURO (CSS Personalizado)
-st.markdown("""
-<style>
-    /* Fundo Escuro */
-    .stApp {
-        background-color: #0E1117;
-        color: #E0E6ED;
-    }
-    /* Estilização dos Containers e Caixas */
-    div[data-testid="stFileUploader"], div[data-testid="stTextInput"] {
-        background-color: #1E222D;
-        border-radius: 10px;
-        padding: 10px;
-        border: 1px solid #2E364A;
-    }
-    /* Botões operacionais */
-    .stButton>button {
-        background-color: #002060;
-        color: #FFFFFF;
-        font-weight: bold;
-        border-radius: 8px;
-        border: 1px solid #1E3A8A;
-        width: 100%;
-        padding: 10px;
-    }
-    .stButton>button:hover {
-        background-color: #1E40AF;
-        border-color: #3B82F6;
-    }
-    /* Títulos */
-    h1, h2, h3 {
-        color: #F3F4F6 !important;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Busca flexível da imagem do brasão
+def obter_caminho_brasao():
+    for nome in ["brasao.png", "brasao.PNG", "Brasao.png", "BRASAO.PNG", "brasao.jpg", "brasao.jpeg"]:
+        if os.path.exists(nome):
+            return nome
+    return None
+
+caminho_brasao = obter_caminho_brasao()
+
+# 🎨 MODO ESCURO COM BRASÃO EM MARCA D'ÁGUA NO FUNDO DO SITE (AUMENTADO E ATRÁS DA ESTRUTURA)
+def gerar_css_app(caminho_img):
+    css_base = """
+    <style>
+        /* Estilização dos Containers e Caixas */
+        div[data-testid="stFileUploader"], div[data-testid="stTextInput"] {
+            background-color: rgba(30, 34, 45, 0.92) !important;
+            border-radius: 10px;
+            padding: 10px;
+            border: 1px solid #2E364A;
+        }
+        /* Botões operacionais */
+        .stButton>button {
+            background-color: #002060;
+            color: #FFFFFF;
+            font-weight: bold;
+            border-radius: 8px;
+            border: 1px solid #1E3A8A;
+            width: 100%;
+            padding: 10px;
+        }
+        .stButton>button:hover {
+            background-color: #1E40AF;
+            border-color: #3B82F6;
+        }
+        /* Títulos */
+        h1, h2, h3 {
+            color: #F3F4F6 !important;
+        }
+    </style>
+    """
+    
+    if caminho_img and os.path.exists(caminho_img):
+        try:
+            with open(caminho_img, "rb") as f:
+                encoded = base64.b64encode(f.read()).decode("utf-8")
+            ext = caminho_img.split(".")[-1].lower()
+            mime = "image/png" if "png" in ext else "image/jpeg"
+            bg_css = f"""
+            <style>
+                .stApp {{
+                    background-color: #0E1117;
+                    color: #E0E6ED;
+                    background-image: linear-gradient(rgba(14, 17, 23, 0.88), rgba(14, 17, 23, 0.88)), url('data:{mime};base64,{encoded}');
+                    background-size: 500px auto;
+                    background-repeat: no-repeat;
+                    background-position: center 80px;
+                    background-attachment: fixed;
+                }}
+            </style>
+            """
+            return bg_css + css_base
+        except Exception:
+            pass
+
+    return """
+    <style>
+        .stApp {
+            background-color: #0E1117;
+            color: #E0E6ED;
+        }
+    </style>
+    """ + css_base
+
+st.markdown(gerar_css_app(caminho_brasao), unsafe_allow_html=True)
 
 # 🏷️ ASSINATURA MOVIDA PARA A ESQUERDA
 st.markdown("""
@@ -68,21 +108,12 @@ SENHA_CORRETA = "deusa"
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 
-# Busca flexível da imagem do brasão
-def obter_caminho_brasao():
-    for nome in ["brasao.png", "brasao.PNG", "Brasao.png", "BRASAO.PNG", "brasao.jpg", "brasao.jpeg"]:
-        if os.path.exists(nome):
-            return nome
-    return None
-
-caminho_brasao = obter_caminho_brasao()
-
 # Tela de Login
 if not st.session_state.autenticado:
     if caminho_brasao:
         col1, col2, col3 = st.columns(3)
         with col2:
-            st.image(caminho_brasao, width=130)
+            st.image(caminho_brasao, width=150)
 
     st.title("🔒 Acesso Restrito — 18º BPM")
     st.write("Digite a senha de acesso para utilizar o Gerador de Ordens de Serviço (OS).")
@@ -99,7 +130,7 @@ if not st.session_state.autenticado:
     st.stop()
 
 # =========================================================
-# FUNÇÕES DE EXTRAÇÃO E PARSER DE ORDEM DE OPERAÇÃO (OO)
+# FUNÇÕES DE EXTRAÇÃO, LIMPEZA DE ASSINATURA E PARSER DE OO
 # =========================================================
 
 MESES = {
@@ -112,8 +143,44 @@ def data_atual_extenso():
     now = datetime.now()
     return f"{now.day} de {MESES[now.month]} de {now.year}"
 
+def limpar_assinaturas_eletronicas(texto):
+    """Remove linhas e metadados de assinatura eletrônica, hash e e-Protocolo do texto extraído"""
+    if not texto:
+        return ""
+    
+    padroes_assinatura = [
+        r'Documento\s+assinado\s+digitalmente.*',
+        r'Inserido\s+ao\s+protocolo.*',
+        r'conforme\s+MP\s+n[º°\.]?\s*2\.?200-2/2001.*',
+        r'Validação:.*',
+        r'https?://[^\s]*eprotocolo[^\s]*',
+        r'www\.[^\s]*eprotocolo[^\s]*',
+        r'Código\s+de\s+autenticidade:.*',
+        r'Assinado\s+eletronicamente\s+por:.*',
+        r'Assinatura\s+Qualificada\s+efetuada\s+por:.*',
+        r'Chave\s+de\s+Autenticação:.*',
+        r'Para\s+verificar\s+a\s+autenticidade.*',
+        r'e-Protocolo\s*\d+.*',
+        r'SHA-?256:.*',
+        r'Hash\s*:.*'
+    ]
+    
+    linhas = texto.split('\n')
+    linhas_limpas = []
+    
+    for linha in linhas:
+        descartar = False
+        for p in padroes_assinatura:
+            if re.search(p, linha, re.IGNORECASE):
+                descartar = True
+                break
+        if not descartar:
+            linhas_limpas.append(linha)
+            
+    return '\n'.join(linhas_limpas)
+
 def extrair_texto_arquivo(uploaded_file):
-    """Extrai todo o texto de um arquivo PDF ou DOCX enviado"""
+    """Extrai todo o texto de um arquivo PDF ou DOCX enviado e remove assinaturas digitais"""
     ext = uploaded_file.name.split(".")[-1].lower()
     text = ""
     
@@ -136,7 +203,9 @@ def extrair_texto_arquivo(uploaded_file):
                 text += row_str + "\n"
         uploaded_file.seek(0)
         
-    return text
+    # Limpa assinaturas eletrônicas e metadados de protocolo
+    text_limpo = limpar_assinaturas_eletronicas(text)
+    return text_limpo
 
 def extrair_secao(texto, inicio_regex, fim_regex):
     """Auxiliar para extrair bloco de texto entre duas seções usando Regex"""
@@ -223,14 +292,7 @@ def gerar_ordem_servico_docx(fields):
         section.left_margin = Inches(0.8)
         section.right_margin = Inches(0.8)
 
-    # Brasão
-    caminho_img = obter_caminho_brasao()
-    if caminho_img:
-        p_img = doc.add_paragraph()
-        p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p_img.paragraph_format.space_after = Pt(6)
-        run_img = p_img.add_run()
-        run_img.add_picture(caminho_img, width=Inches(0.85))
+    # NOTA: A foto do brasão NÃO é adicionada ao relatório gerado (apenas no site).
 
     # Tabela de Cabeçalho Institucional
     table_hdr = doc.add_table(rows=1, cols=2)
@@ -363,7 +425,7 @@ def converter_docx_para_pdf(docx_bytes):
 if caminho_brasao:
     col1, col2, col3 = st.columns(3)
     with col2:
-        st.image(caminho_brasao, width=120)
+        st.image(caminho_brasao, width=150)
 
 st.title("📑 Gerador de Ordem de Serviço (OS)")
 st.caption("18º Batalhão de Polícia Militar — PMPR")
@@ -417,7 +479,7 @@ if arquivo_oo:
                 'cargo_comandante': cargo_comandante
             }
             
-            # 1. Gera DOCX em memória
+            # 1. Gera DOCX em memória (SEM BRASÃO NO RELATÓRIO)
             docx_bytes = gerar_ordem_servico_docx(fields_final)
             st.session_state['generated_docx'] = docx_bytes
             
