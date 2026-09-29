@@ -301,12 +301,12 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    r0 = table_hdr.rows
-    r0.cells[0].width = Inches(3.5)
-    r0.cells[1].width = Inches(3.0)
+    row0 = table_hdr.rows[0]
+    row0.cells[0].width = Inches(3.5)
+    row0.cells[1].width = Inches(3.0)
 
     # Célula Esquerda (Unidade)
-    p_left = r0.cells[0].paragraphs[0]
+    p_left = row0.cells[0].paragraphs[0]
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -315,7 +315,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.size = Pt(10)
 
     # Célula Direita (Local, Data, OS)
-    p_right = r0.cells[1].paragraphs[0]
+    p_right = row0.cells[1].paragraphs[0]
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.2
@@ -480,7 +480,6 @@ def gerar_ordem_servico_pdf(fields):
 
     story = []
     
-    # Cabeçalho Tabela
     left_p = Paragraph("PMPR<br/>2º CRPM/18º BPM<br/>P/3", style_hdr_left)
     right_p = Paragraph(f"Cornélio Procópio, PR.<br/>Em {fields.get('data_expedicao', '')}<br/><b>ORDEM DE SERVIÇO Nº {fields.get('num_os', '077')}</b>", style_hdr_right)
     
@@ -497,12 +496,10 @@ def gerar_ordem_servico_pdf(fields):
     story.append(Spacer(1, 4))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.black, spaceBefore=4, spaceAfter=12))
     
-    # Título da Operação
     op_name = fields.get('nome_operacao', '').strip().upper()
     story.append(Paragraph(f"“{op_name}”", style_title))
     story.append(Spacer(1, 10))
     
-    # Seções
     secoes = [
         ("1. FINALIDADE", fields.get('finalidade', '')),
         ("2. REFERÊNCIAS", fields.get('referencias', '')),
@@ -522,7 +519,6 @@ def gerar_ordem_servico_pdf(fields):
                     l_clean = linha.strip().replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                     story.append(Paragraph(l_clean, style_body))
     
-    # Assinatura
     story.append(Spacer(1, 20))
     story.append(Paragraph("<i>(Assinado eletronicamente)</i>", style_ass))
     story.append(Paragraph(f"<b>{fields.get('nome_comandante', 'Ten.-Cel. QOEM PM Helder de Lima Dantas Junior')}</b>,", style_ass))
