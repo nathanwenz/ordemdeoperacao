@@ -21,9 +21,10 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
-# Patterns Regex para sub-numeração (ex: 4.1, 4.2, 1.1) e itens com letras (ex: a), b), a., b.)
+# Patterns Regex para sub-numeração, fases da operação e itens com letras
 subnum_pattern = re.compile(r'^(\d+\.\d+(?:\.\d+)?)\s*(.*)', re.IGNORECASE)
 letter_pattern = re.compile(r'^([a-z][\.\)])\s*(.*)', re.IGNORECASE)
+phase_pattern = re.compile(r'^(FASE\s+\d+|FASE\s+[I|V|X]+|\d+[ªº]\s*FASE)\s*[-–:]?\s*(.*)', re.IGNORECASE)
 
 # Configuração da página e tema
 st.set_page_config(page_title="18º BPM — Gerador de Ordem de Serviço", page_icon="📑", layout="centered")
@@ -153,7 +154,7 @@ def data_atual_extenso():
     return f"{now.day} de {MESES[now.month]} de {now.year}"
 
 def limpar_assinaturas_eletronicas(texto):
-    """Remove linhas e metadados de assinatura eletrônica, hash e e-Protocolo do texto extraído"""
+    """Remove linhas e metadados de assinatura eletrônica, hash, protocolo e e-Protocolo do texto extraído"""
     if not texto:
         return ""
     
@@ -171,7 +172,17 @@ def limpar_assinaturas_eletronicas(texto):
         r'Para\s+verificar\s+a\s+autenticidade.*',
         r'e-Protocolo\s*\d+.*',
         r'SHA-?256:.*',
-        r'Hash\s*:.*'
+        r'Hash\s*:.*',
+        r'Demais\s+assinaturas\s+na\s+folha.*',
+        r'A\s+autenticidade\s+deste.*',
+        r'\d{1,2}\.\d{3}\.\d{3}-\d.*por:.*',
+        r'.*por:\s*\d*º?\s*(Sgt|Ten|Cel|Cap|Maj|Subten|Cb|Sd|Aux|PM).*em:\s*\d{2}/\d{2}/\d{4}.*',
+        r'.*em:\s*\d{2}/\d{2}/\d{4}\s*\d{2}:\d{2}.*',
+        r'Folha\s+\d+[a-z]?\s*de\s*\d+.*',
+        r'Página\s+\d+\s+de\s+\d+.*',
+        r'Aux\.\s*P/\d+.*em:\s*\d{2}/\d{2}/\d{4}.*',
+        r'.*documento\s+pode\s+ser\s+verificad[oa].*',
+        r'.*site\s+do\s+eprotocolo.*'
     ]
     
     linhas = texto.split('\n')
@@ -186,7 +197,21 @@ def limpar_assinaturas_eletronicas(texto):
         if not descartar:
             linhas_limpas.append(linha)
             
-    return '\n'.join(linhas_limpas)
+    res = '\n'.join(linhas_limpas)
+    res = re.sub(r'\n{3,}', '\n\n', res)
+    return res.strip()
+
+def formatar_quebras_de_secao(texto):
+    """Garante que fases, sub-numerações e listas com letras fiquem em suas próprias linhas organizadas"""
+    if not texto:
+        return ""
+    # Insere quebra de linha antes de FASE 1, 1ª FASE, FASE I, etc.
+    texto = re.sub(r'([^\n])\s*(\d+[ªº]\s*FASE|FASE\s+\d+|FASE\s+[I|V|X]+)', r'\1\n\2', texto, flags=re.IGNORECASE)
+    # Insere quebra de linha antes de letras a), b), c) se estiverem coladas na mesma linha
+    texto = re.sub(r'([^\n])\s+([a-z][\.\)])\s+', r'\1\n\2 ', texto, flags=re.IGNORECASE)
+    # Insere quebra de linha antes de sub-numerações 4.1, 4.2 se coladas
+    texto = re.sub(r'([^\n])\s+(\d+\.\d+(?:\.\d+)?)\s+', r'\1\n\2 ', texto)
+    return texto
 
 def extrair_texto_arquivo(uploaded_file):
     """Extrai todo o texto de um arquivo PDF ou DOCX enviado e remove assinaturas digitais"""
@@ -359,26 +384,29 @@ def gerar_ordem_servico_docx(fields):
     ]
 
     for tit, conteudo in secoes:
-        if conteudo and conteudo.strip():
+        conteudo_formatado = formatar_quebras_de_secao(conteudo)
+        if conteudo_formatado and conteudo_formatado.strip():
             p_sec = doc.add_paragraph()
-            p_sec.paragraph_format.space_before = Pt(12)
+            p_sec.paragraph_format.space_before = Pt(14)
             p_sec.paragraph_format.space_after = Pt(4)
             r_sec = p_sec.add_run(tit)
             r_sec.bold = True
             r_sec.font.name = "Arial"
             r_sec.font.size = Pt(11)
 
-            linhas = conteudo.strip().split('\n')
+            linhas = conteudo_formatado.strip().split('\n')
             for linha in linhas:
                 l_str = linha.strip()
                 if l_str:
                     m_sub = subnum_pattern.match(l_str)
+                    m_phase = phase_pattern.match(l_str)
                     m_let = letter_pattern.match(l_str)
 
                     p_cnt = doc.add_paragraph()
                     p_cnt.paragraph_format.line_spacing = 1.2
 
-                    if m_sub:
+                    if m_sub or m_phase:
+                        # Maior espaçamento e negrito para sub-numerações e fases (ex: 4.1 CONCEITO, 1ª FASE - PLANEJAMENTO)
                         p_cnt.paragraph_format.space_before = Pt(10)
                         p_cnt.paragraph_format.space_after = Pt(4)
                         r_cnt = p_cnt.add_run(l_str)
@@ -386,6 +414,7 @@ def gerar_ordem_servico_docx(fields):
                         r_cnt.font.name = "Arial"
                         r_cnt.font.size = Pt(10.5)
                     elif m_let:
+                        # Início de letra em negrito (ex: a), b), c))
                         let, rest = m_let.groups()
                         p_cnt.paragraph_format.space_before = Pt(2)
                         p_cnt.paragraph_format.space_after = Pt(4)
@@ -397,6 +426,7 @@ def gerar_ordem_servico_docx(fields):
                         r_rest.font.name = "Arial"
                         r_rest.font.size = Pt(10)
                     else:
+                        # Parágrafo normal
                         p_cnt.paragraph_format.space_before = Pt(0)
                         p_cnt.paragraph_format.space_after = Pt(6)
                         r_cnt = p_cnt.add_run(l_str)
@@ -482,7 +512,7 @@ def gerar_ordem_servico_pdf(fields):
         fontSize=11,
         leading=15,
         textColor=colors.black,
-        spaceBefore=12,
+        spaceBefore=14,
         spaceAfter=4
     )
     
@@ -550,16 +580,18 @@ def gerar_ordem_servico_pdf(fields):
     ]
     
     for tit, conteudo in secoes:
-        if conteudo and conteudo.strip():
+        conteudo_formatado = formatar_quebras_de_secao(conteudo)
+        if conteudo_formatado and conteudo_formatado.strip():
             story.append(Paragraph(tit, style_sec_title))
-            linhas = conteudo.strip().split('\n')
+            linhas = conteudo_formatado.strip().split('\n')
             for linha in linhas:
                 l_str = linha.strip()
                 if l_str:
                     m_sub = subnum_pattern.match(l_str)
+                    m_phase = phase_pattern.match(l_str)
                     m_let = letter_pattern.match(l_str)
 
-                    if m_sub:
+                    if m_sub or m_phase:
                         l_clean = l_str.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                         story.append(Paragraph(f"<b>{l_clean}</b>", style_subnum_title))
                     elif m_let:
