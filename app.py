@@ -54,7 +54,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 🏷️️ ASSINATURA MOVIDA PARA A ESQUERDA
+# 🏷️ ASSINATURA MOVIDA PARA A ESQUERDA
 st.markdown("""
 <div style="position: fixed; bottom: 15px; right: 140px; text-align: right; color: #9CA3AF; font-size: 12px; font-family: sans-serif; z-index: 999999; line-height: 1.4; background-color: rgba(14, 17, 23, 0.9); padding: 6px 12px; border-radius: 6px; border: 1px solid #2E364A;">
     Desenvolvido por:<br>
@@ -237,12 +237,12 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    row = table_hdr.rows[0]
-    row.cells[0].width = Inches(3.5)
-    row.cells[1].width = Inches(3.0)
+    row = table_hdr.rows
+    row.cells.width = Inches(3.5)
+    row.cells.width = Inches(3.0)
 
     # Célula Esquerda (Unidade)
-    p_left = row.cells[0].paragraphs[0]
+    p_left = row.cells.paragraphs
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -251,7 +251,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.size = Pt(10)
 
     # Célula Direita (Local, Data, OS)
-    p_right = row.cells[1].paragraphs[0]
+    p_right = row.cells.paragraphs
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.2
@@ -331,16 +331,6 @@ def gerar_ordem_servico_docx(fields):
     r_ass3.bold = True
     r_ass3.font.name = "Arial"
     r_ass3.font.size = Pt(10)
-
-    # Distribuição
-    p_dist = doc.add_paragraph()
-    p_dist.paragraph_format.space_before = Pt(18)
-    p_dist.paragraph_format.line_spacing = 1.15
-    r_dist_lbl = p_dist.add_run("DISTRIBUIÇÃO: ")
-    r_dist_lbl.bold = True
-    r_dist_lbl.font.size = Pt(9)
-    r_dist_cnt = p_dist.add_run(fields.get('distribuicao', 'Cmdo. 2º CRPM; Cmdo. e Subcmdo. 18º BPM; P/1; P/2; P/3; P/4; P/5; PCS; ROTAM; 1ª, 2ª e 3ª Cias.; PRC; K9; Adjunto COPOM e CPU.'))
-    r_dist_cnt.font.size = Pt(9)
 
     buffer = io.BytesIO()
     doc.save(buffer)
@@ -424,8 +414,7 @@ if arquivo_oo:
                 'relatorios': parsed_data.get('relatorios', ''),
                 'prescricoes': parsed_data.get('prescricoes', ''),
                 'nome_comandante': nome_comandante,
-                'cargo_comandante': cargo_comandante,
-                'distribuicao': "Cmdo. 2º CRPM; Cmdo. e Subcmdo. 18º BPM; P/1; P/2; P/3; P/4; P/5; PCS; ROTAM; 1ª, 2ª e 3ª Cias.; PRC; K9; Adjunto COPOM e CPU."
+                'cargo_comandante': cargo_comandante
             }
             
             # 1. Gera DOCX em memória
@@ -460,6 +449,6 @@ if arquivo_oo:
                         mime="application/pdf"
                     )
                 else:
-                    st.info("O arquivo Word está pronto! Para baixar em PDF, garanta que o LibreOffice esteja instalado no ambiente.")
+                    st.info("O arquivo Word está pronto!")
     else:
         st.error("Não foi possível extrair texto do arquivo enviado. Verifique se o PDF ou DOCX contém texto pesquisável.")
