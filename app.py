@@ -21,6 +21,10 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
+# Patterns Regex para sub-numeração (ex: 4.1, 4.2, 1.1) e itens com letras (ex: a), b), a., b.)
+subnum_pattern = re.compile(r'^(\d+\.\d+(?:\.\d+)?)\s*(.*)', re.IGNORECASE)
+letter_pattern = re.compile(r'^([a-z][\.\)])\s*(.*)', re.IGNORECASE)
+
 # Configuração da página e tema
 st.set_page_config(page_title="18º BPM — Gerador de Ordem de Serviço", page_icon="📑", layout="centered")
 
@@ -278,7 +282,7 @@ def parsear_ordem_operacao(texto):
     dados['prescricoes'] = prescricoes if prescricoes else "Os policiais militares deverão atuar com bom senso, urbanidade, legalidade e estrito cumprimento do dever legal. Preleção obrigatória antes do início do serviço."
 
     # 9. Referências Padrão
-    dados['referencias'] = f"a. Constituição da República Federativa do Brasil de 1988;\nb. Constituição do Estado do Paraná de 1989;\nc. Lei n.º 22.354/2025 – Lei de Organização Básica da PMPR;\nd. Ordem de Operação nº {dados['num_oo']} – 2º CRPM ({dados['nome_op']});\ne. Determinação do Comandante do 18º BPM."
+    dados['referencias'] = f"a) Constituição da República Federativa do Brasil de 1988;\nb) Constituição do Estado do Paraná de 1989;\nc) Lei n.º 22.354/2025 – Lei de Organização Básica da PMPR;\nd) Ordem de Operação nº {dados['num_oo']} – 2º CRPM ({dados['nome_op']});\ne) Determinação do Comandante do 18º BPM."
 
     return dados
 
@@ -366,14 +370,41 @@ def gerar_ordem_servico_docx(fields):
 
             linhas = conteudo.strip().split('\n')
             for linha in linhas:
-                if linha.strip():
+                l_str = linha.strip()
+                if l_str:
+                    m_sub = subnum_pattern.match(l_str)
+                    m_let = letter_pattern.match(l_str)
+
                     p_cnt = doc.add_paragraph()
-                    p_cnt.paragraph_format.space_before = Pt(0)
-                    p_cnt.paragraph_format.space_after = Pt(6)
                     p_cnt.paragraph_format.line_spacing = 1.2
-                    r_cnt = p_cnt.add_run(linha.strip())
-                    r_cnt.font.name = "Arial"
-                    r_cnt.font.size = Pt(10)
+
+                    if m_sub:
+                        # Maior espaçamento e negrito para sub-numerações (ex: 4.1 CONCEITO, 4.2 ATRIBUIÇÕES)
+                        p_cnt.paragraph_format.space_before = Pt(10)
+                        p_cnt.paragraph_format.space_after = Pt(4)
+                        r_cnt = p_cnt.add_run(l_str)
+                        r_cnt.bold = True
+                        r_cnt.font.name = "Arial"
+                        r_cnt.font.size = Pt(10.5)
+                    elif m_let:
+                        # Início de letra em negrito (ex: a), b), c))
+                        let, rest = m_let.groups()
+                        p_cnt.paragraph_format.space_before = Pt(2)
+                        p_cnt.paragraph_format.space_after = Pt(4)
+                        r_let = p_cnt.add_run(let + " ")
+                        r_let.bold = True
+                        r_let.font.name = "Arial"
+                        r_let.font.size = Pt(10)
+                        r_rest = p_cnt.add_run(rest)
+                        r_rest.font.name = "Arial"
+                        r_rest.font.size = Pt(10)
+                    else:
+                        # Parágrafo normal
+                        p_cnt.paragraph_format.space_before = Pt(0)
+                        p_cnt.paragraph_format.space_after = Pt(6)
+                        r_cnt = p_cnt.add_run(l_str)
+                        r_cnt.font.name = "Arial"
+                        r_cnt.font.size = Pt(10)
 
     # Assinatura do Comandante do 18º BPM
     p_ass = doc.add_paragraph()
@@ -402,7 +433,7 @@ def gerar_ordem_servico_docx(fields):
     return buffer.getvalue()
 
 # =========================================================
-# GERADOR NATIVO DE PDF (USANDO REPORTLAB - 100% GARANTIDO)
+# GERADOR NATIVO DE PDF (USANDO REPORTLAB)
 # =========================================================
 
 def gerar_ordem_servico_pdf(fields):
@@ -453,6 +484,17 @@ def gerar_ordem_servico_pdf(fields):
         fontName='Helvetica-Bold',
         fontSize=11,
         leading=15,
+        textColor=colors.black,
+        spaceBefore=12,
+        spaceAfter=4
+    )
+    
+    style_subnum_title = ParagraphStyle(
+        'SubNumTitle',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=10.5,
+        leading=14,
         textColor=colors.black,
         spaceBefore=10,
         spaceAfter=4
@@ -515,9 +557,22 @@ def gerar_ordem_servico_pdf(fields):
             story.append(Paragraph(tit, style_sec_title))
             linhas = conteudo.strip().split('\n')
             for linha in linhas:
-                if linha.strip():
-                    l_clean = linha.strip().replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                    story.append(Paragraph(l_clean, style_body))
+                l_str = linha.strip()
+                if l_str:
+                    m_sub = subnum_pattern.match(l_str)
+                    m_let = letter_pattern.match(l_str)
+
+                    if m_sub:
+                        l_clean = l_str.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                        story.append(Paragraph(f"<b>{l_clean}</b>", style_subnum_title))
+                    elif m_let:
+                        let, rest = m_let.groups()
+                        let_clean = let.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                        rest_clean = rest.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                        story.append(Paragraph(f"<b>{let_clean}</b> {rest_clean}", style_body))
+                    else:
+                        l_clean = l_str.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                        story.append(Paragraph(l_clean, style_body))
     
     story.append(Spacer(1, 20))
     story.append(Paragraph("<i>(Assinado eletronicamente)</i>", style_ass))
@@ -616,7 +671,7 @@ if arquivo_oo:
                 st.download_button(
                     label="📕 Baixar em PDF (.pdf)",
                     data=st.session_state['generated_pdf'],
-                    file_name=f"{st.session_state['filename_base']}.pdf",
+                    file_name=f"{st.session_state['filename_base'].pdf}",
                     mime="application/pdf"
                 )
     else:
