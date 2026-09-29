@@ -203,8 +203,7 @@ def limpar_assinaturas_e_ruidos(texto):
                 break
                 
         if not descartar:
-            if '|' not in l_trim:
-                l_trim = re.sub(r'\s+\d{1,2}$', '', l_trim)
+            l_trim = re.sub(r'\s+\d{1,2}$', '', l_trim)
             linhas_limpas.append(l_trim)
             
     res = '\n'.join(linhas_limpas)
@@ -214,34 +213,13 @@ def limpar_assinaturas_e_ruidos(texto):
 def formatar_quebras_de_secao(texto):
     if not texto:
         return ""
-    linhas = texto.split('\n')
-    novas_linhas = []
-    for l in linhas:
-        if '|' in l:
-            novas_linhas.append(l)
-        else:
-            l = re.sub(r'([^\n])\s*(\d+[ªº]\s*FASE|FASE\s+\d+|FASE\s+[I|V|X]+)', r'\1\n\2', l, flags=re.IGNORECASE)
-            l = re.sub(r'([^\n])\s+([a-z0-9]{1,3}[\.\)])\s+', r'\1\n\2 ', l, flags=re.IGNORECASE)
-            l = re.sub(r'([^\n])\s+(\d+\.\d+(?:\.\d+)?)\s+', r'\1\n\2 ', l)
-            novas_linhas.append(l)
-    return '\n'.join(novas_linhas)
-
-def safe_crop_text(page, y0, y1):
-    """Realiza o recorte seguro de área no PDF prevenindo erros de coordenadas"""
-    if y1 <= y0 + 1:
-        return ""
-    y0 = max(0, min(y0, page.height - 1))
-    y1 = max(y0 + 1, min(y1, page.height))
-    if y1 <= y0:
-        return ""
-    try:
-        cropped = page.crop((0, y0, page.width, y1))
-        return cropped.extract_text() or ""
-    except Exception:
-        return ""
+    texto = re.sub(r'([^\n])\s*(\d+[ªº]\s*FASE|FASE\s+\d+|FASE\s+[I|V|X]+)', r'\1\n\2', texto, flags=re.IGNORECASE)
+    texto = re.sub(r'([^\n])\s+([a-z0-9]{1,3}[\.\)])\s+', r'\1\n\2 ', texto, flags=re.IGNORECASE)
+    texto = re.sub(r'([^\n])\s+(\d+\.\d+(?:\.\d+)?)\s+', r'\1\n\2 ', texto)
+    return texto
 
 def extrair_texto_arquivo(uploaded_file):
-    """Extrai texto e tabelas de um arquivo PDF ou DOCX em ordem mantendo integridade estrutural"""
+    """Extrai texto e tabelas de um arquivo PDF ou DOCX e limpa assinaturas digitais"""
     ext = uploaded_file.name.split(".")[-1].lower()
     text = ""
     
@@ -249,66 +227,29 @@ def extrair_texto_arquivo(uploaded_file):
         uploaded_file.seek(0)
         with pdfplumber.open(uploaded_file) as pdf:
             for page in pdf.pages:
-                tables = page.find_tables()
-                if not tables:
-                    page_text = page.extract_text() or ""
-                    if page_text.strip():
-                        text += page_text + "\n\n"
-                else:
-                    # Ordena tabelas por posição vertical (bbox[1] = top)
-                    tables = sorted(tables, key=lambda t: t.bbox[1])
-                    page_height = page.height
-                    last_bottom = 0
-                    page_content = []
-                    
-                    for tbl in tables:
-                        bbox = tbl.bbox # (x0, top, x1, bottom)
-                        top = bbox[1]
-                        bottom = bbox[3]
-                        
-                        if top > last_bottom + 2:
-                            t_above = safe_crop_text(page, last_bottom, top)
-                            if t_above and t_above.strip():
-                                page_content.append(t_above.strip())
-                                
-                        extracted_tbl = tbl.extract()
-                        if extracted_tbl:
-                            table_lines = []
-                            for row in extracted_tbl:
-                                if row and any(cell is not None and str(cell).strip() for cell in row):
-                                    clean_row = [str(c).replace('\n', ' ').strip() if c is not None else "" for c in row]
-                                    table_lines.append(" | ".join(clean_row))
-                            if table_lines:
-                                page_content.append("\n".join(table_lines))
-                                
-                        last_bottom = max(last_bottom, bottom)
-                        
-                    if last_bottom < page_height - 2:
-                        t_below = safe_crop_text(page, last_bottom, page_height)
-                        if t_below and t_below.strip():
-                            page_content.append(t_below.strip())
-                            
-                    text += "\n\n".join(page_content) + "\n\n"
+                tables = page.extract_tables()
+                t_text = page.extract_text() or ""
+                
+                if tables:
+                    for table in tables:
+                        table_str = ""
+                        for row in table:
+                            if row and any(cell for cell in row if cell):
+                                clean_row = [str(c).replace('\n', ' ').strip() if c else "" for c in row]
+                                table_str += " | ".join(clean_row) + "\n"
+                        if table_str:
+                            t_text += "\n" + table_str
+                text += t_text + "\n"
         uploaded_file.seek(0)
     elif ext in ["docx", "doc"]:
         uploaded_file.seek(0)
         doc = docx.Document(uploaded_file)
-        items = []
-        for element in doc.element.body:
-            if element.tag.endswith('p'):
-                p = docx.text.paragraph.Paragraph(element, doc)
-                if p.text.strip():
-                    items.append(p.text.strip())
-            elif element.tag.endswith('tbl'):
-                tbl = docx.table.Table(element, doc)
-                table_lines = []
-                for row in tbl.rows:
-                    row_cells = [c.text.replace('\n', ' ').strip() for c in row.cells]
-                    if any(row_cells):
-                        table_lines.append(" | ".join(row_cells))
-                if table_lines:
-                    items.append("\n".join(table_lines))
-        text = "\n\n".join(items)
+        for p in doc.paragraphs:
+            text += p.text + "\n"
+        for t in doc.tables:
+            for r in t.rows:
+                row_str = " | ".join([c.text.strip() for c in r.cells])
+                text += row_str + "\n"
         uploaded_file.seek(0)
         
     text_limpo = limpar_assinaturas_e_ruidos(text)
@@ -397,8 +338,8 @@ def renderizar_conteudo_docx(doc, conteudo):
     linhas = conteudo_formatado.strip().split('\n')
     
     tem_tabela = any('|' in l for l in linhas)
-    menciona_fase_ou_escala = any(re.search(r'FASE|PROGRAMAÇÃO|ESCALA|HORÁRIO', l, re.IGNORECASE) for l in linhas if '|' not in l)
-    if tem_tabela and menciona_fase_ou_escala:
+    menciona_fase = any(re.search(r'FASE', l, re.IGNORECASE) for l in linhas if '|' not in l)
+    if tem_tabela and menciona_fase:
         linhas = [l for l in linhas if '|' in l]
 
     i = 0
@@ -416,12 +357,8 @@ def renderizar_conteudo_docx(doc, conteudo):
         if '|' in linha:
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
-                cels = [c.strip() for c in linhas[i].split('|')]
-                if len(cels) > 1 and cels[0] == "":
-                    cels = cels[1:]
-                if len(cels) > 1 and cels[-1] == "":
-                    cels = cels[:-1]
-                if any(c for c in cels):
+                cels = [c.strip() for c in linhas[i].split('|') if c.strip()]
+                if cels:
                     tabela_linhas.append(cels)
                 i += 1
                 
@@ -599,8 +536,8 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body):
     linhas = conteudo_formatado.strip().split('\n')
     
     tem_tabela = any('|' in l for l in linhas)
-    menciona_fase_ou_escala = any(re.search(r'FASE|PROGRAMAÇÃO|ESCALA|HORÁRIO', l, re.IGNORECASE) for l in linhas if '|' not in l)
-    if tem_tabela and menciona_fase_ou_escala:
+    menciona_fase = any(re.search(r'FASE', l, re.IGNORECASE) for l in linhas if '|' not in l)
+    if tem_tabela and menciona_fase:
         linhas = [l for l in linhas if '|' in l]
 
     i = 0
@@ -618,12 +555,8 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body):
         if '|' in linha:
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
-                cels = [c.strip() for c in linhas[i].split('|')]
-                if len(cels) > 1 and cels[0] == "":
-                    cels = cels[1:]
-                if len(cels) > 1 and cels[-1] == "":
-                    cels = cels[:-1]
-                if any(c for c in cels):
+                cels = [c.strip() for c in linhas[i].split('|') if c.strip()]
+                if cels:
                     tabela_linhas.append(cels)
                 i += 1
                 
