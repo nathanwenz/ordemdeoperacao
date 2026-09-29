@@ -113,7 +113,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 🔒 CONFIGURAÇÃO DA SENHA DE ACESSO
-SENHA_CORRETA = "deusa"
+SENHA_CORRETA = "18BPM2026"
 
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
@@ -203,7 +203,6 @@ def limpar_assinaturas_e_ruidos(texto):
                 break
                 
         if not descartar:
-            # Limpa resquício de número de página solto no final de frases
             l_trim = re.sub(r'\s+\d{1,2}$', '', l_trim)
             linhas_limpas.append(l_trim)
             
@@ -214,11 +213,8 @@ def limpar_assinaturas_e_ruidos(texto):
 def formatar_quebras_de_secao(texto):
     if not texto:
         return ""
-    # Insere quebra de linha antes de FASE 1, 1ª FASE, FASE I, etc.
     texto = re.sub(r'([^\n])\s*(\d+[ªº]\s*FASE|FASE\s+\d+|FASE\s+[I|V|X]+)', r'\1\n\2', texto, flags=re.IGNORECASE)
-    # Insere quebra de linha antes de tópicos tipo a), b), 1., 2., 1)
     texto = re.sub(r'([^\n])\s+([a-z0-9]{1,3}[\.\)])\s+', r'\1\n\2 ', texto, flags=re.IGNORECASE)
-    # Insere quebra de linha antes de sub-numerações 4.1, 4.2
     texto = re.sub(r'([^\n])\s+(\d+\.\d+(?:\.\d+)?)\s+', r'\1\n\2 ', texto)
     return texto
 
@@ -341,7 +337,6 @@ def renderizar_conteudo_docx(doc, conteudo):
 
     linhas = conteudo_formatado.strip().split('\n')
     
-    # Se houver tabela na seção de FASES DA OPERAÇÃO, mantém estritamente apenas a tabela
     tem_tabela = any('|' in l for l in linhas)
     menciona_fase = any(re.search(r'FASE', l, re.IGNORECASE) for l in linhas if '|' not in l)
     if tem_tabela and menciona_fase:
@@ -354,7 +349,6 @@ def renderizar_conteudo_docx(doc, conteudo):
             i += 1
             continue
             
-        # Remove títulos de seção duplicados/fora de contexto no meio do texto
         if re.match(r'^\s*(\d+\.?\s*)?(EXECUÇÃO|SITUAÇÃO|FINALIDADE|MISSÃO|ADMINISTRAÇÃO|LOGÍSTICA|PRESCRIÇÕES)\s*$', linha, re.IGNORECASE):
             i += 1
             continue
@@ -390,7 +384,6 @@ def renderizar_conteudo_docx(doc, conteudo):
                 p_sp.paragraph_format.space_after = Pt(4)
             continue
             
-        # Parágrafos normais / Fases / Sub-numerações / Tópicos
         m_sub = subnum_pattern.match(linha)
         m_phase = phase_pattern.match(linha)
         m_top = topic_pattern.match(linha)
@@ -440,12 +433,12 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    row0 = table_hdr.rows
-    row0.cells.width = Inches(3.5)
-    row0.cells.width = Inches(3.0)
+    row0 = table_hdr.rows[0]
+    row0.cells[0].width = Inches(3.5)
+    row0.cells[1].width = Inches(3.0)
 
     # Célula Esquerda (Unidade)
-    p_left = row0.cells.paragraphs
+    p_left = row0.cells[0].paragraphs[0]
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -454,7 +447,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.size = Pt(10)
 
     # Célula Direita (Local, Data, OS)
-    p_right = row0.cells.paragraphs
+    p_right = row0.cells[1].paragraphs[0]
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.2
@@ -554,7 +547,6 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body):
             i += 1
             continue
             
-        # Remove títulos de seção duplicados/fora de contexto no meio do texto
         if re.match(r'^\s*(\d+\.?\s*)?(EXECUÇÃO|SITUAÇÃO|FINALIDADE|MISSÃO|ADMINISTRAÇÃO|LOGÍSTICA|PRESCRIÇÕES)\s*$', linha, re.IGNORECASE):
             i += 1
             continue
@@ -773,7 +765,6 @@ if arquivo_oo:
         st.subheader("📝 Informações da Ordem de Serviço")
         st.write("Ajuste os campos essenciais abaixo antes de gerar os documentos:")
 
-        # TELA ENXUTA: APENAS OS CAMPOS ESSENCIAIS
         col_a, col_b = st.columns(2)
         with col_a:
             num_os = st.text_input("Número da Ordem de Serviço (OS)", value="077")
@@ -807,11 +798,11 @@ if arquivo_oo:
                 'cargo_comandante': cargo_comandante
             }
             
-            # 1. Gera DOCX em memória (Sem Brasão no relatório Word)
+            # 1. Gera DOCX em memória
             docx_bytes = gerar_ordem_servico_docx(fields_final)
             st.session_state['generated_docx'] = docx_bytes
             
-            # 2. Gera PDF nativo em memória usando ReportLab (100% confiável no Streamlit Cloud)
+            # 2. Gera PDF nativo em memória usando ReportLab
             pdf_bytes = gerar_ordem_servico_pdf(fields_final)
             st.session_state['generated_pdf'] = pdf_bytes
             
