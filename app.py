@@ -113,7 +113,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 🔒 CONFIGURAÇÃO DA SENHA DE ACESSO
-SENHA_CORRETA = "deusa"
+SENHA_CORRETA = "18BPM2026"
 
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
@@ -183,7 +183,7 @@ def limpar_assinaturas_e_ruidos(texto):
         r'Aux\.\s*P/\d+.*em:\s*\d{2}/\d{2}/\d{4}.*',
         r'.*documento\s+pode\s+ser\s+verificad[oa].*',
         r'.*site\s+do\s+eprotocolo.*',
-        r'^\s*\d{1,3}[a-z]?\s*$', # Números soltos de página como '1', '2', '11a'
+        r'^\s*\d{1,3}[a-z]?\s*$',
         r'^\s*-\s*\d{1,3}\s*-\s*$',
         r'^\s*\d{2}:\d{2}\b.*',
     ]
@@ -203,7 +203,8 @@ def limpar_assinaturas_e_ruidos(texto):
                 break
                 
         if not descartar:
-            l_trim = re.sub(r'\s+\d{1,2}$', '', l_trim)
+            if '|' not in l_trim:
+                l_trim = re.sub(r'\s+\d{1,2}$', '', l_trim)
             linhas_limpas.append(l_trim)
             
     res = '\n'.join(linhas_limpas)
@@ -219,7 +220,7 @@ def formatar_quebras_de_secao(texto):
     return texto
 
 def extrair_texto_arquivo(uploaded_file):
-    """Extrai texto e tabelas de um arquivo PDF ou DOCX e limpa assinaturas digitais"""
+    """Extrai texto e tabelas do arquivo enviando sem alterar a ordem das seções"""
     ext = uploaded_file.name.split(".")[-1].lower()
     text = ""
     
@@ -227,9 +228,8 @@ def extrair_texto_arquivo(uploaded_file):
         uploaded_file.seek(0)
         with pdfplumber.open(uploaded_file) as pdf:
             for page in pdf.pages:
-                tables = page.extract_tables()
                 t_text = page.extract_text() or ""
-                
+                tables = page.extract_tables()
                 if tables:
                     for table in tables:
                         table_str = ""
@@ -248,7 +248,7 @@ def extrair_texto_arquivo(uploaded_file):
             text += p.text + "\n"
         for t in doc.tables:
             for r in t.rows:
-                row_str = " | ".join([c.text.strip() for c in r.cells])
+                row_str = " | ".join([c.text.replace('\n', ' ').strip() for c in r.cells])
                 text += row_str + "\n"
         uploaded_file.seek(0)
         
@@ -256,7 +256,6 @@ def extrair_texto_arquivo(uploaded_file):
     return text_limpo
 
 def extrair_secao(texto, inicio_regex, fim_regex):
-    """Auxiliar para extrair bloco de texto entre duas seções usando Regex"""
     pattern = f"(?:{inicio_regex})(.*?)(?=(?:{fim_regex})|$)"
     match = re.search(pattern, texto, re.DOTALL | re.IGNORECASE)
     if match and match.group(1):
@@ -336,12 +335,6 @@ def renderizar_conteudo_docx(doc, conteudo):
         return
 
     linhas = conteudo_formatado.strip().split('\n')
-    
-    tem_tabela = any('|' in l for l in linhas)
-    menciona_fase = any(re.search(r'FASE', l, re.IGNORECASE) for l in linhas if '|' not in l)
-    if tem_tabela and menciona_fase:
-        linhas = [l for l in linhas if '|' in l]
-
     i = 0
     while i < len(linhas):
         linha = linhas[i].strip()
@@ -349,16 +342,16 @@ def renderizar_conteudo_docx(doc, conteudo):
             i += 1
             continue
             
-        if re.match(r'^\s*(\d+\.?\s*)?(EXECUÇÃO|SITUAÇÃO|FINALIDADE|MISSÃO|ADMINISTRAÇÃO|LOGÍSTICA|PRESCRIÇÕES)\s*$', linha, re.IGNORECASE):
-            i += 1
-            continue
-            
         # Tabela detectada por '|'
         if '|' in linha:
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
-                cels = [c.strip() for c in linhas[i].split('|') if c.strip()]
-                if cels:
+                cels = [c.strip() for c in linhas[i].split('|')]
+                if len(cels) > 1 and cels[0] == "":
+                    cels = cels[1:]
+                if len(cels) > 1 and cels[-1] == "":
+                    cels = cels[:-1]
+                if any(c for c in cels):
                     tabela_linhas.append(cels)
                 i += 1
                 
@@ -534,12 +527,6 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body):
         return
 
     linhas = conteudo_formatado.strip().split('\n')
-    
-    tem_tabela = any('|' in l for l in linhas)
-    menciona_fase = any(re.search(r'FASE', l, re.IGNORECASE) for l in linhas if '|' not in l)
-    if tem_tabela and menciona_fase:
-        linhas = [l for l in linhas if '|' in l]
-
     i = 0
     while i < len(linhas):
         linha = linhas[i].strip()
@@ -547,16 +534,16 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body):
             i += 1
             continue
             
-        if re.match(r'^\s*(\d+\.?\s*)?(EXECUÇÃO|SITUAÇÃO|FINALIDADE|MISSÃO|ADMINISTRAÇÃO|LOGÍSTICA|PRESCRIÇÕES)\s*$', linha, re.IGNORECASE):
-            i += 1
-            continue
-            
         # Tabela no PDF
         if '|' in linha:
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
-                cels = [c.strip() for c in linhas[i].split('|') if c.strip()]
-                if cels:
+                cels = [c.strip() for c in linhas[i].split('|')]
+                if len(cels) > 1 and cels[0] == "":
+                    cels = cels[1:]
+                if len(cels) > 1 and cels[-1] == "":
+                    cels = cels[:-1]
+                if any(c for c in cels):
                     tabela_linhas.append(cels)
                 i += 1
                 
