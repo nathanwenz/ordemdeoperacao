@@ -21,9 +21,9 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
-# Patterns Regex para sub-numeração, fases da operação e itens com letras
+# Patterns Regex para sub-numeração, tópicos (a), b), 1., 2.) e fases da operação
 subnum_pattern = re.compile(r'^(\d+\.\d+(?:\.\d+)?)\s*(.*)', re.IGNORECASE)
-letter_pattern = re.compile(r'^([a-z][\.\)])\s*(.*)', re.IGNORECASE)
+topic_pattern = re.compile(r'^([a-z0-9]{1,3}[\.\)])\s*(.*)', re.IGNORECASE)
 phase_pattern = re.compile(r'^(FASE\s+\d+|FASE\s+[I|V|X]+|\d+[ªº]\s*FASE)\s*[-–:]?\s*(.*)', re.IGNORECASE)
 
 # Configuração da página e tema
@@ -154,7 +154,7 @@ def data_atual_extenso():
     return f"{now.day} de {MESES[now.month]} de {now.year}"
 
 def limpar_assinaturas_e_ruidos(texto):
-    """Remove linhas de assinatura eletrônica, hash, e-Protocolo e números de páginas isolados"""
+    """Remove assinaturas eletrônicas, hash, e-Protocolo, números de páginas e cabeçalhos duplicados"""
     if not texto:
         return ""
     
@@ -183,7 +183,7 @@ def limpar_assinaturas_e_ruidos(texto):
         r'Aux\.\s*P/\d+.*em:\s*\d{2}/\d{2}/\d{4}.*',
         r'.*documento\s+pode\s+ser\s+verificad[oa].*',
         r'.*site\s+do\s+eprotocolo.*',
-        r'^\s*\d{1,3}[a-z]?\s*$', # Descarta números soltos como '1', '2', '11a'
+        r'^\s*\d{1,3}[a-z]?\s*$', # Números soltos de página como '1', '2', '11a'
         r'^\s*-\s*\d{1,3}\s*-\s*$',
         r'^\s*\d{2}:\d{2}\b.*',
     ]
@@ -203,7 +203,7 @@ def limpar_assinaturas_e_ruidos(texto):
                 break
                 
         if not descartar:
-            # Limpa resquício de número solto no final de frases
+            # Limpa resquício de número de página solto no final de frases
             l_trim = re.sub(r'\s+\d{1,2}$', '', l_trim)
             linhas_limpas.append(l_trim)
             
@@ -216,8 +216,8 @@ def formatar_quebras_de_secao(texto):
         return ""
     # Insere quebra de linha antes de FASE 1, 1ª FASE, FASE I, etc.
     texto = re.sub(r'([^\n])\s*(\d+[ªº]\s*FASE|FASE\s+\d+|FASE\s+[I|V|X]+)', r'\1\n\2', texto, flags=re.IGNORECASE)
-    # Insere quebra de linha antes de letras a), b)
-    texto = re.sub(r'([^\n])\s+([a-z][\.\)])\s+', r'\1\n\2 ', texto, flags=re.IGNORECASE)
+    # Insere quebra de linha antes de tópicos tipo a), b), 1., 2., 1)
+    texto = re.sub(r'([^\n])\s+([a-z0-9]{1,3}[\.\)])\s+', r'\1\n\2 ', texto, flags=re.IGNORECASE)
     # Insere quebra de linha antes de sub-numerações 4.1, 4.2
     texto = re.sub(r'([^\n])\s+(\d+\.\d+(?:\.\d+)?)\s+', r'\1\n\2 ', texto)
     return texto
@@ -231,7 +231,6 @@ def extrair_texto_arquivo(uploaded_file):
         uploaded_file.seek(0)
         with pdfplumber.open(uploaded_file) as pdf:
             for page in pdf.pages:
-                # Tenta extrair tabelas para manter a estrutura original
                 tables = page.extract_tables()
                 t_text = page.extract_text() or ""
                 
@@ -341,10 +340,22 @@ def renderizar_conteudo_docx(doc, conteudo):
         return
 
     linhas = conteudo_formatado.strip().split('\n')
+    
+    # Se houver tabela na seção de FASES DA OPERAÇÃO, mantém estritamente apenas a tabela
+    tem_tabela = any('|' in l for l in linhas)
+    menciona_fase = any(re.search(r'FASE', l, re.IGNORECASE) for l in linhas if '|' not in l)
+    if tem_tabela and menciona_fase:
+        linhas = [l for l in linhas if '|' in l]
+
     i = 0
     while i < len(linhas):
         linha = linhas[i].strip()
         if not linha:
+            i += 1
+            continue
+            
+        # Remove títulos de seção duplicados/fora de contexto no meio do texto
+        if re.match(r'^\s*(\d+\.?\s*)?(EXECUÇÃO|SITUAÇÃO|FINALIDADE|MISSÃO|ADMINISTRAÇÃO|LOGÍSTICA|PRESCRIÇÕES)\s*$', linha, re.IGNORECASE):
             i += 1
             continue
             
@@ -379,10 +390,10 @@ def renderizar_conteudo_docx(doc, conteudo):
                 p_sp.paragraph_format.space_after = Pt(4)
             continue
             
-        # Parágrafos normais / Fases / Sub-numerações / Letras
+        # Parágrafos normais / Fases / Sub-numerações / Tópicos
         m_sub = subnum_pattern.match(linha)
         m_phase = phase_pattern.match(linha)
-        m_let = letter_pattern.match(linha)
+        m_top = topic_pattern.match(linha)
 
         p = doc.add_paragraph()
         p.paragraph_format.line_spacing = 1.2
@@ -394,14 +405,14 @@ def renderizar_conteudo_docx(doc, conteudo):
             r.bold = True
             r.font.name = "Arial"
             r.font.size = Pt(10.5)
-        elif m_let:
-            let, rest = m_let.groups()
-            p.paragraph_format.space_before = Pt(2)
+        elif m_top:
+            idx_marker, rest = m_top.groups()
+            p.paragraph_format.space_before = Pt(3)
             p.paragraph_format.space_after = Pt(4)
-            r_let = p.add_run(let + " ")
-            r_let.bold = True
-            r_let.font.name = "Arial"
-            r_let.font.size = Pt(10)
+            r_idx = p.add_run(idx_marker + " ")
+            r_idx.bold = True
+            r_idx.font.name = "Arial"
+            r_idx.font.size = Pt(10)
             r_rest = p.add_run(rest)
             r_rest.font.name = "Arial"
             r_rest.font.size = Pt(10)
@@ -429,12 +440,12 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    row0 = table_hdr.rows[0]
-    row0.cells[0].width = Inches(3.5)
-    row0.cells[1].width = Inches(3.0)
+    row0 = table_hdr.rows
+    row0.cells.width = Inches(3.5)
+    row0.cells.width = Inches(3.0)
 
     # Célula Esquerda (Unidade)
-    p_left = row0.cells[0].paragraphs[0]
+    p_left = row0.cells.paragraphs
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -443,7 +454,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.size = Pt(10)
 
     # Célula Direita (Local, Data, OS)
-    p_right = row0.cells[1].paragraphs[0]
+    p_right = row0.cells.paragraphs
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.2
@@ -530,10 +541,21 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body):
         return
 
     linhas = conteudo_formatado.strip().split('\n')
+    
+    tem_tabela = any('|' in l for l in linhas)
+    menciona_fase = any(re.search(r'FASE', l, re.IGNORECASE) for l in linhas if '|' not in l)
+    if tem_tabela and menciona_fase:
+        linhas = [l for l in linhas if '|' in l]
+
     i = 0
     while i < len(linhas):
         linha = linhas[i].strip()
         if not linha:
+            i += 1
+            continue
+            
+        # Remove títulos de seção duplicados/fora de contexto no meio do texto
+        if re.match(r'^\s*(\d+\.?\s*)?(EXECUÇÃO|SITUAÇÃO|FINALIDADE|MISSÃO|ADMINISTRAÇÃO|LOGÍSTICA|PRESCRIÇÕES)\s*$', linha, re.IGNORECASE):
             i += 1
             continue
             
@@ -579,16 +601,16 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body):
             
         m_sub = subnum_pattern.match(linha)
         m_phase = phase_pattern.match(linha)
-        m_let = letter_pattern.match(linha)
+        m_top = topic_pattern.match(linha)
 
         if m_sub or m_phase:
             l_clean = linha.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
             story.append(Paragraph(f"<b>{l_clean}</b>", style_subnum))
-        elif m_let:
-            let, rest = m_let.groups()
-            let_clean = let.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        elif m_top:
+            idx_marker, rest = m_top.groups()
+            idx_clean = idx_marker.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
             rest_clean = rest.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            story.append(Paragraph(f"<b>{let_clean}</b> {rest_clean}", style_body))
+            story.append(Paragraph(f"<b>{idx_clean}</b> {rest_clean}", style_body))
         else:
             l_clean = linha.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
             story.append(Paragraph(l_clean, style_body))
