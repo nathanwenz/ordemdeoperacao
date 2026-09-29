@@ -38,7 +38,7 @@ def obter_caminho_brasao():
 
 caminho_brasao = obter_caminho_brasao()
 
-# 🎨 MODO ESCURO COM BRASÃO EM MARCA D'ÁGUA EM TELA CHEIA (LEVEMENTE NO FUNDO DE TODO O SITE)
+# 🎨 MODO ESCURO COM BRASÃO EM MARCA D'ÁGUA EM TELA CHEIA
 def gerar_css_app(caminho_img):
     css_base = """
     <style>
@@ -153,12 +153,12 @@ def data_atual_extenso():
     now = datetime.now()
     return f"{now.day} de {MESES[now.month]} de {now.year}"
 
-def limpar_assinaturas_eletronicas(texto):
-    """Remove linhas e metadados de assinatura eletrônica, hash, protocolo e e-Protocolo do texto extraído"""
+def limpar_assinaturas_e_ruidos(texto):
+    """Remove linhas de assinatura eletrônica, hash, e-Protocolo e números de páginas isolados"""
     if not texto:
         return ""
     
-    padroes_assinatura = [
+    padroes_lixo = [
         r'Documento\s+assinado\s+digitalmente.*',
         r'Inserido\s+ao\s+protocolo.*',
         r'conforme\s+MP\s+n[º°\.]?\s*2\.?200-2/2001.*',
@@ -182,39 +182,48 @@ def limpar_assinaturas_eletronicas(texto):
         r'Página\s+\d+\s+de\s+\d+.*',
         r'Aux\.\s*P/\d+.*em:\s*\d{2}/\d{2}/\d{4}.*',
         r'.*documento\s+pode\s+ser\s+verificad[oa].*',
-        r'.*site\s+do\s+eprotocolo.*'
+        r'.*site\s+do\s+eprotocolo.*',
+        r'^\s*\d{1,3}[a-z]?\s*$', # Descarta números soltos como '1', '2', '11a'
+        r'^\s*-\s*\d{1,3}\s*-\s*$',
+        r'^\s*\d{2}:\d{2}\b.*',
     ]
     
     linhas = texto.split('\n')
     linhas_limpas = []
     
     for linha in linhas:
+        l_trim = linha.strip()
+        if not l_trim:
+            continue
+            
         descartar = False
-        for p in padroes_assinatura:
-            if re.search(p, linha, re.IGNORECASE):
+        for p in padroes_lixo:
+            if re.search(p, l_trim, re.IGNORECASE):
                 descartar = True
                 break
+                
         if not descartar:
-            linhas_limpas.append(linha)
+            # Limpa resquício de número solto no final de frases
+            l_trim = re.sub(r'\s+\d{1,2}$', '', l_trim)
+            linhas_limpas.append(l_trim)
             
     res = '\n'.join(linhas_limpas)
     res = re.sub(r'\n{3,}', '\n\n', res)
     return res.strip()
 
 def formatar_quebras_de_secao(texto):
-    """Garante que fases, sub-numerações e listas com letras fiquem em suas próprias linhas organizadas"""
     if not texto:
         return ""
     # Insere quebra de linha antes de FASE 1, 1ª FASE, FASE I, etc.
     texto = re.sub(r'([^\n])\s*(\d+[ªº]\s*FASE|FASE\s+\d+|FASE\s+[I|V|X]+)', r'\1\n\2', texto, flags=re.IGNORECASE)
-    # Insere quebra de linha antes de letras a), b), c) se estiverem coladas na mesma linha
+    # Insere quebra de linha antes de letras a), b)
     texto = re.sub(r'([^\n])\s+([a-z][\.\)])\s+', r'\1\n\2 ', texto, flags=re.IGNORECASE)
-    # Insere quebra de linha antes de sub-numerações 4.1, 4.2 se coladas
+    # Insere quebra de linha antes de sub-numerações 4.1, 4.2
     texto = re.sub(r'([^\n])\s+(\d+\.\d+(?:\.\d+)?)\s+', r'\1\n\2 ', texto)
     return texto
 
 def extrair_texto_arquivo(uploaded_file):
-    """Extrai todo o texto de um arquivo PDF ou DOCX enviado e remove assinaturas digitais"""
+    """Extrai texto e tabelas de um arquivo PDF ou DOCX e limpa assinaturas digitais"""
     ext = uploaded_file.name.split(".")[-1].lower()
     text = ""
     
@@ -222,9 +231,20 @@ def extrair_texto_arquivo(uploaded_file):
         uploaded_file.seek(0)
         with pdfplumber.open(uploaded_file) as pdf:
             for page in pdf.pages:
-                t = page.extract_text()
-                if t:
-                    text += t + "\n"
+                # Tenta extrair tabelas para manter a estrutura original
+                tables = page.extract_tables()
+                t_text = page.extract_text() or ""
+                
+                if tables:
+                    for table in tables:
+                        table_str = ""
+                        for row in table:
+                            if row and any(cell for cell in row if cell):
+                                clean_row = [str(c).replace('\n', ' ').strip() if c else "" for c in row]
+                                table_str += " | ".join(clean_row) + "\n"
+                        if table_str:
+                            t_text += "\n" + table_str
+                text += t_text + "\n"
         uploaded_file.seek(0)
     elif ext in ["docx", "doc"]:
         uploaded_file.seek(0)
@@ -237,7 +257,7 @@ def extrair_texto_arquivo(uploaded_file):
                 text += row_str + "\n"
         uploaded_file.seek(0)
         
-    text_limpo = limpar_assinaturas_eletronicas(text)
+    text_limpo = limpar_assinaturas_e_ruidos(text)
     return text_limpo
 
 def extrair_secao(texto, inicio_regex, fim_regex):
@@ -315,6 +335,85 @@ def parsear_ordem_operacao(texto):
 # GERADOR DO DOCUMENTO WORD (.DOCX)
 # =========================================================
 
+def renderizar_conteudo_docx(doc, conteudo):
+    conteudo_formatado = formatar_quebras_de_secao(conteudo)
+    if not conteudo_formatado or not conteudo_formatado.strip():
+        return
+
+    linhas = conteudo_formatado.strip().split('\n')
+    i = 0
+    while i < len(linhas):
+        linha = linhas[i].strip()
+        if not linha:
+            i += 1
+            continue
+            
+        # Tabela detectada por '|'
+        if '|' in linha:
+            tabela_linhas = []
+            while i < len(linhas) and '|' in linhas[i]:
+                cels = [c.strip() for c in linhas[i].split('|') if c.strip()]
+                if cels:
+                    tabela_linhas.append(cels)
+                i += 1
+                
+            if tabela_linhas:
+                max_cols = max(len(r) for r in tabela_linhas)
+                tbl = doc.add_table(rows=len(tabela_linhas), cols=max_cols)
+                tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+                tbl.style = 'Table Grid'
+                
+                for r_idx, row_data in enumerate(tabela_linhas):
+                    row_cells = tbl.rows[r_idx].cells
+                    for c_idx, cell_value in enumerate(row_data):
+                        if c_idx < len(row_cells):
+                            p = row_cells[c_idx].paragraphs[0]
+                            p.paragraph_format.space_before = Pt(3)
+                            p.paragraph_format.space_after = Pt(3)
+                            r = p.add_run(cell_value)
+                            r.font.name = "Arial"
+                            r.font.size = Pt(9.5)
+                            if r_idx == 0:
+                                r.bold = True
+                p_sp = doc.add_paragraph()
+                p_sp.paragraph_format.space_after = Pt(4)
+            continue
+            
+        # Parágrafos normais / Fases / Sub-numerações / Letras
+        m_sub = subnum_pattern.match(linha)
+        m_phase = phase_pattern.match(linha)
+        m_let = letter_pattern.match(linha)
+
+        p = doc.add_paragraph()
+        p.paragraph_format.line_spacing = 1.2
+
+        if m_sub or m_phase:
+            p.paragraph_format.space_before = Pt(10)
+            p.paragraph_format.space_after = Pt(4)
+            r = p.add_run(linha)
+            r.bold = True
+            r.font.name = "Arial"
+            r.font.size = Pt(10.5)
+        elif m_let:
+            let, rest = m_let.groups()
+            p.paragraph_format.space_before = Pt(2)
+            p.paragraph_format.space_after = Pt(4)
+            r_let = p.add_run(let + " ")
+            r_let.bold = True
+            r_let.font.name = "Arial"
+            r_let.font.size = Pt(10)
+            r_rest = p.add_run(rest)
+            r_rest.font.name = "Arial"
+            r_rest.font.size = Pt(10)
+        else:
+            p.paragraph_format.space_before = Pt(0)
+            p.paragraph_format.space_after = Pt(6)
+            r = p.add_run(linha)
+            r.font.name = "Arial"
+            r.font.size = Pt(10)
+        
+        i += 1
+
 def gerar_ordem_servico_docx(fields):
     doc = Document()
 
@@ -384,8 +483,7 @@ def gerar_ordem_servico_docx(fields):
     ]
 
     for tit, conteudo in secoes:
-        conteudo_formatado = formatar_quebras_de_secao(conteudo)
-        if conteudo_formatado and conteudo_formatado.strip():
+        if conteudo and conteudo.strip():
             p_sec = doc.add_paragraph()
             p_sec.paragraph_format.space_before = Pt(14)
             p_sec.paragraph_format.space_after = Pt(4)
@@ -394,44 +492,7 @@ def gerar_ordem_servico_docx(fields):
             r_sec.font.name = "Arial"
             r_sec.font.size = Pt(11)
 
-            linhas = conteudo_formatado.strip().split('\n')
-            for linha in linhas:
-                l_str = linha.strip()
-                if l_str:
-                    m_sub = subnum_pattern.match(l_str)
-                    m_phase = phase_pattern.match(l_str)
-                    m_let = letter_pattern.match(l_str)
-
-                    p_cnt = doc.add_paragraph()
-                    p_cnt.paragraph_format.line_spacing = 1.2
-
-                    if m_sub or m_phase:
-                        # Maior espaçamento e negrito para sub-numerações e fases (ex: 4.1 CONCEITO, 1ª FASE - PLANEJAMENTO)
-                        p_cnt.paragraph_format.space_before = Pt(10)
-                        p_cnt.paragraph_format.space_after = Pt(4)
-                        r_cnt = p_cnt.add_run(l_str)
-                        r_cnt.bold = True
-                        r_cnt.font.name = "Arial"
-                        r_cnt.font.size = Pt(10.5)
-                    elif m_let:
-                        # Início de letra em negrito (ex: a), b), c))
-                        let, rest = m_let.groups()
-                        p_cnt.paragraph_format.space_before = Pt(2)
-                        p_cnt.paragraph_format.space_after = Pt(4)
-                        r_let = p_cnt.add_run(let + " ")
-                        r_let.bold = True
-                        r_let.font.name = "Arial"
-                        r_let.font.size = Pt(10)
-                        r_rest = p_cnt.add_run(rest)
-                        r_rest.font.name = "Arial"
-                        r_rest.font.size = Pt(10)
-                    else:
-                        # Parágrafo normal
-                        p_cnt.paragraph_format.space_before = Pt(0)
-                        p_cnt.paragraph_format.space_after = Pt(6)
-                        r_cnt = p_cnt.add_run(l_str)
-                        r_cnt.font.name = "Arial"
-                        r_cnt.font.size = Pt(10)
+            renderizar_conteudo_docx(doc, conteudo)
 
     # Assinatura do Comandante do 18º BPM
     p_ass = doc.add_paragraph()
@@ -462,6 +523,77 @@ def gerar_ordem_servico_docx(fields):
 # =========================================================
 # GERADOR NATIVO DE PDF (USANDO REPORTLAB)
 # =========================================================
+
+def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body):
+    conteudo_formatado = formatar_quebras_de_secao(conteudo)
+    if not conteudo_formatado or not conteudo_formatado.strip():
+        return
+
+    linhas = conteudo_formatado.strip().split('\n')
+    i = 0
+    while i < len(linhas):
+        linha = linhas[i].strip()
+        if not linha:
+            i += 1
+            continue
+            
+        # Tabela no PDF
+        if '|' in linha:
+            tabela_linhas = []
+            while i < len(linhas) and '|' in linhas[i]:
+                cels = [c.strip() for c in linhas[i].split('|') if c.strip()]
+                if cels:
+                    tabela_linhas.append(cels)
+                i += 1
+                
+            if tabela_linhas:
+                max_cols = max(len(r) for r in tabela_linhas)
+                col_w = (6.4 * inch) / max_cols
+                
+                pdf_table_data = []
+                for r_idx, r_data in enumerate(tabela_linhas):
+                    row_p = []
+                    for c_val in r_data:
+                        c_clean = c_val.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                        if r_idx == 0:
+                            p_cell = Paragraph(f"<b>{c_clean}</b>", style_body)
+                        else:
+                            p_cell = Paragraph(c_clean, style_body)
+                        row_p.append(p_cell)
+                    while len(row_p) < max_cols:
+                        row_p.append(Paragraph("", style_body))
+                    pdf_table_data.append(row_p)
+                
+                tbl = Table(pdf_table_data, colWidths=[col_w]*max_cols)
+                tbl.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#EBF3FF')),
+                    ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#A0AAB5')),
+                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                    ('TOPPADDING', (0,0), (-1,-1), 4),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                ]))
+                story.append(Spacer(1, 4))
+                story.append(tbl)
+                story.append(Spacer(1, 6))
+            continue
+            
+        m_sub = subnum_pattern.match(linha)
+        m_phase = phase_pattern.match(linha)
+        m_let = letter_pattern.match(linha)
+
+        if m_sub or m_phase:
+            l_clean = linha.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            story.append(Paragraph(f"<b>{l_clean}</b>", style_subnum))
+        elif m_let:
+            let, rest = m_let.groups()
+            let_clean = let.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            rest_clean = rest.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            story.append(Paragraph(f"<b>{let_clean}</b> {rest_clean}", style_body))
+        else:
+            l_clean = linha.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            story.append(Paragraph(l_clean, style_body))
+            
+        i += 1
 
 def gerar_ordem_servico_pdf(fields):
     buffer = io.BytesIO()
@@ -580,28 +712,9 @@ def gerar_ordem_servico_pdf(fields):
     ]
     
     for tit, conteudo in secoes:
-        conteudo_formatado = formatar_quebras_de_secao(conteudo)
-        if conteudo_formatado and conteudo_formatado.strip():
+        if conteudo and conteudo.strip():
             story.append(Paragraph(tit, style_sec_title))
-            linhas = conteudo_formatado.strip().split('\n')
-            for linha in linhas:
-                l_str = linha.strip()
-                if l_str:
-                    m_sub = subnum_pattern.match(l_str)
-                    m_phase = phase_pattern.match(l_str)
-                    m_let = letter_pattern.match(l_str)
-
-                    if m_sub or m_phase:
-                        l_clean = l_str.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                        story.append(Paragraph(f"<b>{l_clean}</b>", style_subnum_title))
-                    elif m_let:
-                        let, rest = m_let.groups()
-                        let_clean = let.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                        rest_clean = rest.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                        story.append(Paragraph(f"<b>{let_clean}</b> {rest_clean}", style_body))
-                    else:
-                        l_clean = l_str.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                        story.append(Paragraph(l_clean, style_body))
+            renderizar_conteudo_pdf(story, conteudo, style_subnum_title, style_body)
     
     story.append(Spacer(1, 20))
     story.append(Paragraph("<i>(Assinado eletronicamente)</i>", style_ass))
