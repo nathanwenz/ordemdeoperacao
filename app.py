@@ -305,12 +305,12 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    row0 = table_hdr.rows
-    row0.cells.width = Inches(3.5)
-    row0.cells.width = Inches(3.0)
+    row0 = table_hdr.rows[0]
+    row0.cells[0].width = Inches(3.5)
+    row0.cells[1].width = Inches(3.0)
 
     # Célula Esquerda (Unidade)
-    p_left = row0.cells.paragraphs
+    p_left = row0.cells[0].paragraphs[0]
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -319,7 +319,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.size = Pt(10)
 
     # Célula Direita (Local, Data, OS)
-    p_right = row0.cells.paragraphs
+    p_right = row0.cells[1].paragraphs[0]
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.2
@@ -379,7 +379,6 @@ def gerar_ordem_servico_docx(fields):
                     p_cnt.paragraph_format.line_spacing = 1.2
 
                     if m_sub:
-                        # Maior espaçamento e negrito para sub-numerações (ex: 4.1 CONCEITO, 4.2 ATRIBUIÇÕES)
                         p_cnt.paragraph_format.space_before = Pt(10)
                         p_cnt.paragraph_format.space_after = Pt(4)
                         r_cnt = p_cnt.add_run(l_str)
@@ -387,7 +386,6 @@ def gerar_ordem_servico_docx(fields):
                         r_cnt.font.name = "Arial"
                         r_cnt.font.size = Pt(10.5)
                     elif m_let:
-                        # Início de letra em negrito (ex: a), b), c))
                         let, rest = m_let.groups()
                         p_cnt.paragraph_format.space_before = Pt(2)
                         p_cnt.paragraph_format.space_after = Pt(4)
@@ -399,7 +397,6 @@ def gerar_ordem_servico_docx(fields):
                         r_rest.font.name = "Arial"
                         r_rest.font.size = Pt(10)
                     else:
-                        # Parágrafo normal
                         p_cnt.paragraph_format.space_before = Pt(0)
                         p_cnt.paragraph_format.space_after = Pt(6)
                         r_cnt = p_cnt.add_run(l_str)
