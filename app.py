@@ -61,7 +61,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 🔒 CONFIGURAÇÃO DA SENHA DE ACESSO
-SENHA_CORRETA = "18BPM2026"
+SENHA_CORRETA = "deusa"
 
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
