@@ -14,7 +14,7 @@ import pdfplumber
 import docx
 from datetime import datetime
 
-# ReportLab para geração garantida e nativa de PDF (sem depender de LibreOffice)
+# ReportLab para geração garantida e nativa de PDF
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -104,7 +104,7 @@ def gerar_css_app(caminho_img):
 
 st.markdown(gerar_css_app(caminho_brasao), unsafe_allow_html=True)
 
-# 🏷️ ASSINATURA MOVIDA PARA A ESQUERDA
+# 🏷️️ ASSINATURA MOVIDA PARA A ESQUERDA
 st.markdown("""
 <div style="position: fixed; bottom: 15px; right: 140px; text-align: right; color: #9CA3AF; font-size: 12px; font-family: sans-serif; z-index: 999999; line-height: 1.4; background-color: rgba(14, 17, 23, 0.9); padding: 6px 12px; border-radius: 6px; border: 1px solid #2E364A;">
     Desenvolvido por:<br>
@@ -153,6 +153,14 @@ def data_atual_extenso():
     now = datetime.now()
     return f"{now.day} de {MESES[now.month]} de {now.year}"
 
+def set_cell_bg(cell, fill_hex):
+    tcPr = cell._element.get_or_add_tcPr()
+    shd = OxmlElement('w:shd')
+    shd.set(qn('w:val'), 'clear')
+    shd.set(qn('w:color'), 'auto')
+    shd.set(qn('w:fill'), fill_hex)
+    tcPr.append(shd)
+
 def limpar_assinaturas_e_ruidos(texto):
     """Remove assinaturas eletrônicas, hash, e-Protocolo, números de páginas e cabeçalhos duplicados"""
     if not texto:
@@ -183,7 +191,7 @@ def limpar_assinaturas_e_ruidos(texto):
         r'Aux\.\s*P/\d+.*em:\s*\d{2}/\d{2}/\d{4}.*',
         r'.*documento\s+pode\s+ser\s+verificad[oa].*',
         r'.*site\s+do\s+eprotocolo.*',
-        r'^\s*\d{1,3}[a-z]?\s*$', # Números soltos de página como '1', '2', '11a'
+        r'^\s*\d{1,3}[a-z]?\s*$',
         r'^\s*-\s*\d{1,3}\s*-\s*$',
         r'^\s*\d{2}:\d{2}\b.*',
     ]
@@ -203,7 +211,8 @@ def limpar_assinaturas_e_ruidos(texto):
                 break
                 
         if not descartar:
-            l_trim = re.sub(r'\s+\d{1,2}$', '', l_trim)
+            if '|' not in l_trim:
+                l_trim = re.sub(r'\s+\d{1,2}$', '', l_trim)
             linhas_limpas.append(l_trim)
             
     res = '\n'.join(linhas_limpas)
@@ -213,13 +222,20 @@ def limpar_assinaturas_e_ruidos(texto):
 def formatar_quebras_de_secao(texto):
     if not texto:
         return ""
-    texto = re.sub(r'([^\n])\s*(\d+[ªº]\s*FASE|FASE\s+\d+|FASE\s+[I|V|X]+)', r'\1\n\2', texto, flags=re.IGNORECASE)
-    texto = re.sub(r'([^\n])\s+([a-z0-9]{1,3}[\.\)])\s+', r'\1\n\2 ', texto, flags=re.IGNORECASE)
-    texto = re.sub(r'([^\n])\s+(\d+\.\d+(?:\.\d+)?)\s+', r'\1\n\2 ', texto)
-    return texto
+    linhas = texto.split('\n')
+    novas_linhas = []
+    for l in linhas:
+        if '|' in l:
+            novas_linhas.append(l)
+        else:
+            l = re.sub(r'([^\n])\s*(\d+[ªº]\s*FASE|FASE\s+\d+|FASE\s+[I|V|X]+)', r'\1\n\2', l, flags=re.IGNORECASE)
+            l = re.sub(r'([^\n])\s+([a-z0-9]{1,3}[\.\)])\s+', r'\1\n\2 ', l, flags=re.IGNORECASE)
+            l = re.sub(r'([^\n])\s+(\d+\.\d+(?:\.\d+)?)\s+', r'\1\n\2 ', l)
+            novas_linhas.append(l)
+    return '\n'.join(novas_linhas)
 
 def extrair_texto_arquivo(uploaded_file):
-    """Extrai texto e tabelas de um arquivo PDF ou DOCX e limpa assinaturas digitais"""
+    """Extrai texto e tabelas do arquivo mantendo todas as células e colunas alinhadas"""
     ext = uploaded_file.name.split(".")[-1].lower()
     text = ""
     
@@ -227,15 +243,14 @@ def extrair_texto_arquivo(uploaded_file):
         uploaded_file.seek(0)
         with pdfplumber.open(uploaded_file) as pdf:
             for page in pdf.pages:
-                tables = page.extract_tables()
                 t_text = page.extract_text() or ""
-                
+                tables = page.extract_tables()
                 if tables:
                     for table in tables:
                         table_str = ""
                         for row in table:
-                            if row and any(cell for cell in row if cell):
-                                clean_row = [str(c).replace('\n', ' ').strip() if c else "" for c in row]
+                            if row and any(cell is not None and str(cell).strip() != "" for cell in row):
+                                clean_row = [str(c).replace('\n', ' ').strip() if c is not None else "" for c in row]
                                 table_str += " | ".join(clean_row) + "\n"
                         if table_str:
                             t_text += "\n" + table_str
@@ -248,15 +263,16 @@ def extrair_texto_arquivo(uploaded_file):
             text += p.text + "\n"
         for t in doc.tables:
             for r in t.rows:
-                row_str = " | ".join([c.text.strip() for c in r.cells])
-                text += row_str + "\n"
+                row_cells = [c.text.replace('\n', ' ').strip() for c in r.cells]
+                if any(cell for cell in row_cells):
+                    row_str = " | ".join(row_cells)
+                    text += row_str + "\n"
         uploaded_file.seek(0)
         
     text_limpo = limpar_assinaturas_e_ruidos(text)
     return text_limpo
 
 def extrair_secao(texto, inicio_regex, fim_regex):
-    """Auxiliar para extrair bloco de texto entre duas seções usando Regex"""
     pattern = f"(?:{inicio_regex})(.*?)(?=(?:{fim_regex})|$)"
     match = re.search(pattern, texto, re.DOTALL | re.IGNORECASE)
     if match and match.group(1):
@@ -336,12 +352,6 @@ def renderizar_conteudo_docx(doc, conteudo):
         return
 
     linhas = conteudo_formatado.strip().split('\n')
-    
-    tem_tabela = any('|' in l for l in linhas)
-    menciona_fase = any(re.search(r'FASE', l, re.IGNORECASE) for l in linhas if '|' not in l)
-    if tem_tabela and menciona_fase:
-        linhas = [l for l in linhas if '|' in l]
-
     i = 0
     while i < len(linhas):
         linha = linhas[i].strip()
@@ -349,21 +359,25 @@ def renderizar_conteudo_docx(doc, conteudo):
             i += 1
             continue
             
-        if re.match(r'^\s*(\d+\.?\s*)?(EXECUÇÃO|SITUAÇÃO|FINALIDADE|MISSÃO|ADMINISTRAÇÃO|LOGÍSTICA|PRESCRIÇÕES)\s*$', linha, re.IGNORECASE):
-            i += 1
-            continue
-            
         # Tabela detectada por '|'
         if '|' in linha:
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
-                cels = [c.strip() for c in linhas[i].split('|') if c.strip()]
-                if cels:
+                cels = [c.strip() for c in linhas[i].split('|')]
+                if len(cels) > 1 and cels == "":
+                    cels = cels[1:]
+                if len(cels) > 1 and cels[-1] == "":
+                    cels = cels[:-1]
+                if any(c for c in cels):
                     tabela_linhas.append(cels)
                 i += 1
                 
             if tabela_linhas:
                 max_cols = max(len(r) for r in tabela_linhas)
+                for r_data in tabela_linhas:
+                    while len(r_data) < max_cols:
+                        r_data.append("")
+
                 tbl = doc.add_table(rows=len(tabela_linhas), cols=max_cols)
                 tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
                 tbl.style = 'Table Grid'
@@ -372,14 +386,25 @@ def renderizar_conteudo_docx(doc, conteudo):
                     row_cells = tbl.rows[r_idx].cells
                     for c_idx, cell_value in enumerate(row_data):
                         if c_idx < len(row_cells):
-                            p = row_cells[c_idx].paragraphs[0]
+                            cell = row_cells[c_idx]
+                            p = cell.paragraphs
                             p.paragraph_format.space_before = Pt(3)
                             p.paragraph_format.space_after = Pt(3)
+                            p.paragraph_format.line_spacing = 1.15
+                            
                             r = p.add_run(cell_value)
                             r.font.name = "Arial"
-                            r.font.size = Pt(9.5)
+                            
                             if r_idx == 0:
+                                set_cell_bg(cell, "002060")
                                 r.bold = True
+                                r.font.size = Pt(9.5)
+                                r.font.color.rgb = RGBColor(255, 255, 255)
+                            else:
+                                if r_idx % 2 == 1:
+                                    set_cell_bg(cell, "F8FAFC")
+                                r.font.size = Pt(9.0)
+                                r.font.color.rgb = RGBColor(30, 41, 59)
                 p_sp = doc.add_paragraph()
                 p_sp.paragraph_format.space_after = Pt(4)
             continue
@@ -433,12 +458,12 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    row0 = table_hdr.rows[0]
-    row0.cells[0].width = Inches(3.5)
+    row0 = table_hdr.rows
+    row0.cells.width = Inches(3.5)
     row0.cells[1].width = Inches(3.0)
 
     # Célula Esquerda (Unidade)
-    p_left = row0.cells[0].paragraphs[0]
+    p_left = row0.cells.paragraphs
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -447,7 +472,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.size = Pt(10)
 
     # Célula Direita (Local, Data, OS)
-    p_right = row0.cells[1].paragraphs[0]
+    p_right = row0.cells[1].paragraphs
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.2
@@ -528,18 +553,12 @@ def gerar_ordem_servico_docx(fields):
 # GERADOR NATIVO DE PDF (USANDO REPORTLAB)
 # =========================================================
 
-def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body):
+def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body, style_table_hdr):
     conteudo_formatado = formatar_quebras_de_secao(conteudo)
     if not conteudo_formatado or not conteudo_formatado.strip():
         return
 
     linhas = conteudo_formatado.strip().split('\n')
-    
-    tem_tabela = any('|' in l for l in linhas)
-    menciona_fase = any(re.search(r'FASE', l, re.IGNORECASE) for l in linhas if '|' not in l)
-    if tem_tabela and menciona_fase:
-        linhas = [l for l in linhas if '|' in l]
-
     i = 0
     while i < len(linhas):
         linha = linhas[i].strip()
@@ -547,21 +566,25 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body):
             i += 1
             continue
             
-        if re.match(r'^\s*(\d+\.?\s*)?(EXECUÇÃO|SITUAÇÃO|FINALIDADE|MISSÃO|ADMINISTRAÇÃO|LOGÍSTICA|PRESCRIÇÕES)\s*$', linha, re.IGNORECASE):
-            i += 1
-            continue
-            
         # Tabela no PDF
         if '|' in linha:
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
-                cels = [c.strip() for c in linhas[i].split('|') if c.strip()]
-                if cels:
+                cels = [c.strip() for c in linhas[i].split('|')]
+                if len(cels) > 1 and cels == "":
+                    cels = cels[1:]
+                if len(cels) > 1 and cels[-1] == "":
+                    cels = cels[:-1]
+                if any(c for c in cels):
                     tabela_linhas.append(cels)
                 i += 1
                 
             if tabela_linhas:
                 max_cols = max(len(r) for r in tabela_linhas)
+                for r_data in tabela_linhas:
+                    while len(r_data) < max_cols:
+                        r_data.append("")
+
                 col_w = (6.4 * inch) / max_cols
                 
                 pdf_table_data = []
@@ -570,21 +593,20 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body):
                     for c_val in r_data:
                         c_clean = c_val.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                         if r_idx == 0:
-                            p_cell = Paragraph(f"<b>{c_clean}</b>", style_body)
+                            p_cell = Paragraph(f"<b><font color='white'>{c_clean}</font></b>", style_table_hdr)
                         else:
                             p_cell = Paragraph(c_clean, style_body)
                         row_p.append(p_cell)
-                    while len(row_p) < max_cols:
-                        row_p.append(Paragraph("", style_body))
                     pdf_table_data.append(row_p)
                 
                 tbl = Table(pdf_table_data, colWidths=[col_w]*max_cols)
                 tbl.setStyle(TableStyle([
-                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#EBF3FF')),
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#002060')),
                     ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#A0AAB5')),
                     ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
                     ('TOPPADDING', (0,0), (-1,-1), 4),
                     ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                    ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F8FAFC')])
                 ]))
                 story.append(Spacer(1, 4))
                 story.append(tbl)
@@ -683,6 +705,15 @@ def gerar_ordem_servico_pdf(fields):
         spaceAfter=5
     )
     
+    style_table_hdr = ParagraphStyle(
+        'TableHdrCustom',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=9.5,
+        leading=13,
+        textColor=colors.white
+    )
+
     style_ass = ParagraphStyle(
         'Assinatura',
         parent=styles['Normal'],
@@ -728,7 +759,7 @@ def gerar_ordem_servico_pdf(fields):
     for tit, conteudo in secoes:
         if conteudo and conteudo.strip():
             story.append(Paragraph(tit, style_sec_title))
-            renderizar_conteudo_pdf(story, conteudo, style_subnum_title, style_body)
+            renderizar_conteudo_pdf(story, conteudo, style_subnum_title, style_body, style_table_hdr)
     
     story.append(Spacer(1, 20))
     story.append(Paragraph("<i>(Assinado eletronicamente)</i>", style_ass))
