@@ -52,7 +52,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 🏷️ ASSINATURA MOVIDA PARA A ESQUERDA (Evita sobreposição com 'Manage app')
+# 🏷️ ASSINATURA MOVIDA PARA A ESQUERDA
 st.markdown("""
 <div style="position: fixed; bottom: 15px; right: 140px; text-align: right; color: #9CA3AF; font-size: 12px; font-family: sans-serif; z-index: 999999; line-height: 1.4; background-color: rgba(14, 17, 23, 0.9); padding: 6px 12px; border-radius: 6px; border: 1px solid #2E364A;">
     Desenvolvido por:<br>
@@ -61,7 +61,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 🔒 CONFIGURAÇÃO DA SENHA DE ACESSO
-SENHA_CORRETA = "deusa"
+SENHA_CORRETA = "18BPM2026"
 
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
@@ -137,9 +137,10 @@ def extrair_texto_arquivo(uploaded_file):
     return text
 
 def extrair_secao(texto, inicio_regex, fim_regex):
-    """Auxiliar para extrair bloco de texto entre duas seções usando Regex"""
-    match = re.search(f"{inicio_regex}(.*?)(?={fim_regex}|$)", texto, re.DOTALL | re.IGNORECASE)
-    if match:
+    """Auxiliar para extrair bloco de texto entre duas seções usando Regex (Corrigido)"""
+    pattern = f"(?:{inicio_regex})(.*?)(?=(?:{fim_regex})|$)"
+    match = re.search(pattern, texto, re.DOTALL | re.IGNORECASE)
+    if match and match.group(1):
         res = match.group(1).strip()
         res = re.sub(r'\n{3,}', '\n\n', res)
         return res
@@ -234,12 +235,12 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    row = table_hdr.rows
-    row.cells.width = Inches(3.5)
+    row = table_hdr.rows[0]
+    row.cells[0].width = Inches(3.5)
     row.cells[1].width = Inches(3.0)
 
     # Célula Esquerda (Unidade)
-    p_left = row.cells.paragraphs
+    p_left = row.cells[0].paragraphs[0]
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.15
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -248,7 +249,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.size = Pt(10)
 
     # Célula Direita (Local, Data, OS)
-    p_right = row.cells[1].paragraphs
+    p_right = row.cells[1].paragraphs[0]
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.15
