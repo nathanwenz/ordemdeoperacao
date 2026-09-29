@@ -10,11 +10,16 @@ import io
 import os
 import re
 import base64
-import subprocess
-import tempfile
 import pdfplumber
 import docx
 from datetime import datetime
+
+# ReportLab para geração garantida e nativa de PDF (sem depender de LibreOffice)
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+from reportlab.lib.units import inch
 
 # Configuração da página e tema
 st.set_page_config(page_title="18º BPM — Gerador de Ordem de Serviço", page_icon="📑", layout="centered")
@@ -28,13 +33,13 @@ def obter_caminho_brasao():
 
 caminho_brasao = obter_caminho_brasao()
 
-# 🎨 MODO ESCURO COM BRASÃO EM MARCA D'ÁGUA NO FUNDO DO SITE (AUMENTADO E ATRÁS DA ESTRUTURA)
+# 🎨 MODO ESCURO COM BRASÃO EM MARCA D'ÁGUA EM TELA CHEIA (LEVEMENTE NO FUNDO DE TODO O SITE)
 def gerar_css_app(caminho_img):
     css_base = """
     <style>
-        /* Estilização dos Containers e Caixas */
+        /* Estilização dos Containers e Caixas com leve transparência para ver o fundo */
         div[data-testid="stFileUploader"], div[data-testid="stTextInput"] {
-            background-color: rgba(30, 34, 45, 0.92) !important;
+            background-color: rgba(30, 34, 45, 0.88) !important;
             border-radius: 10px;
             padding: 10px;
             border: 1px solid #2E364A;
@@ -71,10 +76,10 @@ def gerar_css_app(caminho_img):
                 .stApp {{
                     background-color: #0E1117;
                     color: #E0E6ED;
-                    background-image: linear-gradient(rgba(14, 17, 23, 0.88), rgba(14, 17, 23, 0.88)), url('data:{mime};base64,{encoded}');
-                    background-size: 500px auto;
+                    background-image: linear-gradient(rgba(14, 17, 23, 0.92), rgba(14, 17, 23, 0.92)), url('data:{mime};base64,{encoded}');
+                    background-size: contain;
                     background-repeat: no-repeat;
-                    background-position: center 80px;
+                    background-position: center center;
                     background-attachment: fixed;
                 }}
             </style>
@@ -103,7 +108,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 🔒 CONFIGURAÇÃO DA SENHA DE ACESSO
-SENHA_CORRETA = "deusa"
+SENHA_CORRETA = "18BPM2026"
 
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
@@ -203,7 +208,6 @@ def extrair_texto_arquivo(uploaded_file):
                 text += row_str + "\n"
         uploaded_file.seek(0)
         
-    # Limpa assinaturas eletrônicas e metadados de protocolo
     text_limpo = limpar_assinaturas_eletronicas(text)
     return text_limpo
 
@@ -279,7 +283,7 @@ def parsear_ordem_operacao(texto):
     return dados
 
 # =========================================================
-# GERADOR DO DOCUMENTO WORD E CONVERSÃO PDF
+# GERADOR DO DOCUMENTO WORD (.DOCX)
 # =========================================================
 
 def gerar_ordem_servico_docx(fields):
@@ -292,14 +296,12 @@ def gerar_ordem_servico_docx(fields):
         section.left_margin = Inches(0.8)
         section.right_margin = Inches(0.8)
 
-    # NOTA: A foto do brasão NÃO é adicionada ao relatório gerado (apenas no site).
-
     # Tabela de Cabeçalho Institucional
     table_hdr = doc.add_table(rows=1, cols=2)
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    r0 = table_hdr.rows[0]
+    r0 = table_hdr.rows
     r0.cells[0].width = Inches(3.5)
     r0.cells[1].width = Inches(3.0)
 
@@ -399,24 +401,136 @@ def gerar_ordem_servico_docx(fields):
     buffer.seek(0)
     return buffer.getvalue()
 
-def converter_docx_para_pdf(docx_bytes):
-    """Converte os bytes do documento Word para PDF usando LibreOffice headless"""
-    try:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            docx_path = os.path.join(temp_dir, "temp_os.docx")
-            with open(docx_path, "wb") as f:
-                f.write(docx_bytes)
-            
-            cmd = ["libreoffice", "--headless", "--convert-to", "pdf", docx_path, "--outdir", temp_dir]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            
-            pdf_path = os.path.join(temp_dir, "temp_os.pdf")
-            if os.path.exists(pdf_path):
-                with open(pdf_path, "rb") as f_pdf:
-                    return f_pdf.read()
-    except Exception as e:
-        print(f"Erro na conversão PDF: {e}")
-    return None
+# =========================================================
+# GERADOR NATIVO DE PDF (USANDO REPORTLAB - 100% GARANTIDO)
+# =========================================================
+
+def gerar_ordem_servico_pdf(fields):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=0.75*inch,
+        leftMargin=0.75*inch,
+        topMargin=0.75*inch,
+        bottomMargin=0.75*inch
+    )
+    
+    styles = getSampleStyleSheet()
+    
+    style_hdr_left = ParagraphStyle(
+        'HdrLeft',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=10,
+        leading=13,
+        textColor=colors.black
+    )
+    
+    style_hdr_right = ParagraphStyle(
+        'HdrRight',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=10,
+        leading=13,
+        alignment=2,
+        textColor=colors.black
+    )
+    
+    style_title = ParagraphStyle(
+        'OpTitle',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=12,
+        leading=16,
+        alignment=1,
+        textColor=colors.HexColor('#002060')
+    )
+    
+    style_sec_title = ParagraphStyle(
+        'SecTitle',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=11,
+        leading=15,
+        textColor=colors.black,
+        spaceBefore=10,
+        spaceAfter=4
+    )
+    
+    style_body = ParagraphStyle(
+        'BodyTextCustom',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=10,
+        leading=14,
+        textColor=colors.black,
+        spaceAfter=5
+    )
+    
+    style_ass = ParagraphStyle(
+        'Assinatura',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=10,
+        leading=14,
+        alignment=1,
+        textColor=colors.black
+    )
+
+    story = []
+    
+    # Cabeçalho Tabela
+    left_p = Paragraph("PMPR<br/>2º CRPM/18º BPM<br/>P/3", style_hdr_left)
+    right_p = Paragraph(f"Cornélio Procópio, PR.<br/>Em {fields.get('data_expedicao', '')}<br/><b>ORDEM DE SERVIÇO Nº {fields.get('num_os', '077')}</b>", style_hdr_right)
+    
+    tbl_hdr = Table([[left_p, right_p]], colWidths=[3.2*inch, 3.2*inch])
+    tbl_hdr.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('LEFTPADDING', (0,0), (-1,-1), 0),
+        ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ('TOPPADDING', (0,0), (-1,-1), 0),
+    ]))
+    
+    story.append(tbl_hdr)
+    story.append(Spacer(1, 4))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.black, spaceBefore=4, spaceAfter=12))
+    
+    # Título da Operação
+    op_name = fields.get('nome_operacao', '').strip().upper()
+    story.append(Paragraph(f"“{op_name}”", style_title))
+    story.append(Spacer(1, 10))
+    
+    # Seções
+    secoes = [
+        ("1. FINALIDADE", fields.get('finalidade', '')),
+        ("2. REFERÊNCIAS", fields.get('referencias', '')),
+        ("3. SITUAÇÃO E OBJETIVOS", fields.get('situacao', '')),
+        ("4. EXECUÇÃO E MISSÃO", fields.get('execucao', '')),
+        ("5. ADMINISTRAÇÃO E LOGÍSTICA", fields.get('logistica', '')),
+        ("6. RELATÓRIOS E SISGCOP", fields.get('relatorios', '')),
+        ("7. PRESCRIÇÕES DIVERSAS", fields.get('prescricoes', ''))
+    ]
+    
+    for tit, conteudo in secoes:
+        if conteudo and conteudo.strip():
+            story.append(Paragraph(tit, style_sec_title))
+            linhas = conteudo.strip().split('\n')
+            for linha in linhas:
+                if linha.strip():
+                    l_clean = linha.strip().replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                    story.append(Paragraph(l_clean, style_body))
+    
+    # Assinatura
+    story.append(Spacer(1, 20))
+    story.append(Paragraph("<i>(Assinado eletronicamente)</i>", style_ass))
+    story.append(Paragraph(f"<b>{fields.get('nome_comandante', 'Ten.-Cel. QOEM PM Helder de Lima Dantas Junior')}</b>,", style_ass))
+    story.append(Paragraph(f"<b>{fields.get('cargo_comandante', 'Comandante do 18º BPM.')}</b>", style_ass))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
 
 # =========================================================
 # INTERFACE PRINCIPAL STREAMLIT
@@ -459,7 +573,6 @@ if arquivo_oo:
         with col_d:
             cargo_comandante = st.text_input("Cargo / Função", value="Comandante do 18º BPM.")
 
-        # Guarda os textos detalhados em estado interno da sessão
         st.session_state['parsed_full_data'] = parsed_data
 
         if st.button("🚀 Gerar Ordem de Serviço (Word e PDF)"):
@@ -479,16 +592,17 @@ if arquivo_oo:
                 'cargo_comandante': cargo_comandante
             }
             
-            # 1. Gera DOCX em memória (SEM BRASÃO NO RELATÓRIO)
+            # 1. Gera DOCX em memória (Sem Brasão no relatório Word)
             docx_bytes = gerar_ordem_servico_docx(fields_final)
             st.session_state['generated_docx'] = docx_bytes
             
-            # 2. Converte para PDF em memória
-            pdf_bytes = converter_docx_para_pdf(docx_bytes)
+            # 2. Gera PDF nativo em memória usando ReportLab (100% confiável no Streamlit Cloud)
+            pdf_bytes = gerar_ordem_servico_pdf(fields_final)
             st.session_state['generated_pdf'] = pdf_bytes
+            
             st.session_state['filename_base'] = f"OS_{num_os.replace('/', '_')}_{nome_operacao.replace(' ', '_')}"
 
-        # Exibe os botões de download caso já tenham sido gerados
+        # Exibe os botões de download
         if 'generated_docx' in st.session_state:
             st.markdown("---")
             st.subheader("📥 Baixar Arquivo Gerado")
@@ -503,14 +617,11 @@ if arquivo_oo:
                 )
             
             with col_d2:
-                if st.session_state.get('generated_pdf'):
-                    st.download_button(
-                        label="📕 Baixar em PDF (.pdf)",
-                        data=st.session_state['generated_pdf'],
-                        file_name=f"{st.session_state['filename_base']}.pdf",
-                        mime="application/pdf"
-                    )
-                else:
-                    st.info("O arquivo Word está pronto!")
+                st.download_button(
+                    label="📕 Baixar em PDF (.pdf)",
+                    data=st.session_state['generated_pdf'],
+                    file_name=f"{st.session_state['filename_base']}.pdf",
+                    mime="application/pdf"
+                )
     else:
         st.error("Não foi possível extrair texto do arquivo enviado. Verifique se o PDF ou DOCX contém texto pesquisável.")
