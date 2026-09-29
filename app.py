@@ -226,6 +226,20 @@ def formatar_quebras_de_secao(texto):
             novas_linhas.append(l)
     return '\n'.join(novas_linhas)
 
+def safe_crop_text(page, y0, y1):
+    """Realiza o recorte seguro de área no PDF prevenindo erros de coordenadas"""
+    if y1 <= y0 + 1:
+        return ""
+    y0 = max(0, min(y0, page.height - 1))
+    y1 = max(y0 + 1, min(y1, page.height))
+    if y1 <= y0:
+        return ""
+    try:
+        cropped = page.crop((0, y0, page.width, y1))
+        return cropped.extract_text() or ""
+    except Exception:
+        return ""
+
 def extrair_texto_arquivo(uploaded_file):
     """Extrai texto e tabelas de um arquivo PDF ou DOCX em ordem mantendo integridade estrutural"""
     ext = uploaded_file.name.split(".")[-1].lower()
@@ -241,19 +255,19 @@ def extrair_texto_arquivo(uploaded_file):
                     if page_text.strip():
                         text += page_text + "\n\n"
                 else:
+                    # Ordena tabelas por posição vertical (bbox[1] = top)
                     tables = sorted(tables, key=lambda t: t.bbox[1])
                     page_height = page.height
                     last_bottom = 0
                     page_content = []
                     
                     for tbl in tables:
-                        bbox = tbl.bbox
+                        bbox = tbl.bbox # (x0, top, x1, bottom)
                         top = bbox[1]
                         bottom = bbox[3]
                         
                         if top > last_bottom + 2:
-                            top_crop = page.crop((0, last_bottom, page.width, top))
-                            t_above = top_crop.extract_text()
+                            t_above = safe_crop_text(page, last_bottom, top)
                             if t_above and t_above.strip():
                                 page_content.append(t_above.strip())
                                 
@@ -267,11 +281,10 @@ def extrair_texto_arquivo(uploaded_file):
                             if table_lines:
                                 page_content.append("\n".join(table_lines))
                                 
-                        last_bottom = bottom
+                        last_bottom = max(last_bottom, bottom)
                         
                     if last_bottom < page_height - 2:
-                        bottom_crop = page.crop((0, last_bottom, page.width, page_height))
-                        t_below = bottom_crop.extract_text()
+                        t_below = safe_crop_text(page, last_bottom, page_height)
                         if t_below and t_below.strip():
                             page_content.append(t_below.strip())
                             
