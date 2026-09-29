@@ -9,6 +9,8 @@ from docx.oxml.ns import qn
 import io
 import os
 import re
+import subprocess
+import tempfile
 import pdfplumber
 import docx
 from datetime import datetime
@@ -25,7 +27,7 @@ st.markdown("""
         color: #E0E6ED;
     }
     /* Estilização dos Containers e Caixas */
-    div[data-testid="stFileUploader"], div[data-testid="stTextInput"], div[data-testid="stTextArea"] {
+    div[data-testid="stFileUploader"], div[data-testid="stTextInput"] {
         background-color: #1E222D;
         border-radius: 10px;
         padding: 10px;
@@ -52,7 +54,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 🏷️ ASSINATURA MOVIDA PARA A ESQUERDA
+# 🏷️️ ASSINATURA MOVIDA PARA A ESQUERDA
 st.markdown("""
 <div style="position: fixed; bottom: 15px; right: 140px; text-align: right; color: #9CA3AF; font-size: 12px; font-family: sans-serif; z-index: 999999; line-height: 1.4; background-color: rgba(14, 17, 23, 0.9); padding: 6px 12px; border-radius: 6px; border: 1px solid #2E364A;">
     Desenvolvido por:<br>
@@ -137,7 +139,7 @@ def extrair_texto_arquivo(uploaded_file):
     return text
 
 def extrair_secao(texto, inicio_regex, fim_regex):
-    """Auxiliar para extrair bloco de texto entre duas seções usando Regex (Corrigido)"""
+    """Auxiliar para extrair bloco de texto entre duas seções usando Regex"""
     pattern = f"(?:{inicio_regex})(.*?)(?=(?:{fim_regex})|$)"
     match = re.search(pattern, texto, re.DOTALL | re.IGNORECASE)
     if match and match.group(1):
@@ -208,16 +210,16 @@ def parsear_ordem_operacao(texto):
     return dados
 
 # =========================================================
-# GERADOR DO DOCUMENTO WORD (.DOCX)
+# GERADOR DO DOCUMENTO WORD E CONVERSÃO PDF
 # =========================================================
 
 def gerar_ordem_servico_docx(fields):
     doc = Document()
 
-    # Margens Oficiais
+    # Margens Amplas e Elegantes
     for section in doc.sections:
-        section.top_margin = Inches(0.7)
-        section.bottom_margin = Inches(0.7)
+        section.top_margin = Inches(0.75)
+        section.bottom_margin = Inches(0.75)
         section.left_margin = Inches(0.8)
         section.right_margin = Inches(0.8)
 
@@ -226,7 +228,7 @@ def gerar_ordem_servico_docx(fields):
     if caminho_img:
         p_img = doc.add_paragraph()
         p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p_img.paragraph_format.space_after = Pt(4)
+        p_img.paragraph_format.space_after = Pt(6)
         run_img = p_img.add_run()
         run_img.add_picture(caminho_img, width=Inches(0.85))
 
@@ -242,7 +244,7 @@ def gerar_ordem_servico_docx(fields):
     # Célula Esquerda (Unidade)
     p_left = row.cells[0].paragraphs[0]
     p_left.paragraph_format.space_after = Pt(2)
-    p_left.paragraph_format.line_spacing = 1.15
+    p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
     r_l.bold = True
     r_l.font.name = "Arial"
@@ -252,7 +254,7 @@ def gerar_ordem_servico_docx(fields):
     p_right = row.cells[1].paragraphs[0]
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
-    p_right.paragraph_format.line_spacing = 1.15
+    p_right.paragraph_format.line_spacing = 1.2
     r_r = p_right.add_run(f"Cornélio Procópio, PR.\nEm {fields.get('data_expedicao', data_atual_extenso())}\nORDEM DE SERVIÇO Nº {fields.get('num_os', '077')}")
     r_r.bold = True
     r_r.font.name = "Arial"
@@ -260,23 +262,24 @@ def gerar_ordem_servico_docx(fields):
 
     # Linha Divisória
     p_div = doc.add_paragraph()
-    p_div.paragraph_format.space_after = Pt(6)
-    p_div.paragraph_format.space_before = Pt(4)
+    p_div.paragraph_format.space_after = Pt(10)
+    p_div.paragraph_format.space_before = Pt(6)
     r_div = p_div.add_run("___________________________________________________________________")
     r_div.bold = True
     r_div.font.size = Pt(9)
 
-    # Título da Operação
+    # Título da Operação (Com bom espaçamento)
     p_titulo = doc.add_paragraph()
     p_titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p_titulo.paragraph_format.space_after = Pt(12)
+    p_titulo.paragraph_format.space_before = Pt(6)
+    p_titulo.paragraph_format.space_after = Pt(16)
     r_tit = p_titulo.add_run(f"“{fields.get('nome_operacao', '').strip().upper()}”")
     r_tit.bold = True
     r_tit.font.name = "Arial"
     r_tit.font.size = Pt(12)
     r_tit.font.color.rgb = RGBColor(0, 32, 96)
 
-    # Seções Estruturadas da OS
+    # Seções Estruturadas da OS (Espaçamento aprimorado)
     secoes = [
         ("1. FINALIDADE", fields.get('finalidade', '')),
         ("2. REFERÊNCIAS", fields.get('referencias', '')),
@@ -290,8 +293,8 @@ def gerar_ordem_servico_docx(fields):
     for tit, conteudo in secoes:
         if conteudo and conteudo.strip():
             p_sec = doc.add_paragraph()
-            p_sec.paragraph_format.space_before = Pt(8)
-            p_sec.paragraph_format.space_after = Pt(3)
+            p_sec.paragraph_format.space_before = Pt(12)
+            p_sec.paragraph_format.space_after = Pt(4)
             r_sec = p_sec.add_run(tit)
             r_sec.bold = True
             r_sec.font.name = "Arial"
@@ -301,8 +304,9 @@ def gerar_ordem_servico_docx(fields):
             for linha in linhas:
                 if linha.strip():
                     p_cnt = doc.add_paragraph()
-                    p_cnt.paragraph_format.space_after = Pt(4)
-                    p_cnt.paragraph_format.line_spacing = 1.15
+                    p_cnt.paragraph_format.space_before = Pt(0)
+                    p_cnt.paragraph_format.space_after = Pt(6)
+                    p_cnt.paragraph_format.line_spacing = 1.2
                     r_cnt = p_cnt.add_run(linha.strip())
                     r_cnt.font.name = "Arial"
                     r_cnt.font.size = Pt(10)
@@ -310,8 +314,8 @@ def gerar_ordem_servico_docx(fields):
     # Assinatura do Comandante do 18º BPM
     p_ass = doc.add_paragraph()
     p_ass.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p_ass.paragraph_format.space_before = Pt(20)
-    p_ass.paragraph_format.space_after = Pt(2)
+    p_ass.paragraph_format.space_before = Pt(28)
+    p_ass.paragraph_format.space_after = Pt(4)
     
     r_ass1 = p_ass.add_run("(Assinado eletronicamente)\n")
     r_ass1.italic = True
@@ -330,7 +334,8 @@ def gerar_ordem_servico_docx(fields):
 
     # Distribuição
     p_dist = doc.add_paragraph()
-    p_dist.paragraph_format.space_before = Pt(14)
+    p_dist.paragraph_format.space_before = Pt(18)
+    p_dist.paragraph_format.line_spacing = 1.15
     r_dist_lbl = p_dist.add_run("DISTRIBUIÇÃO: ")
     r_dist_lbl.bold = True
     r_dist_lbl.font.size = Pt(9)
@@ -340,7 +345,26 @@ def gerar_ordem_servico_docx(fields):
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
-    return buffer
+    return buffer.getvalue()
+
+def converter_docx_para_pdf(docx_bytes):
+    """Converte os bytes do documento Word para PDF usando LibreOffice headless"""
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docx_path = os.path.join(temp_dir, "temp_os.docx")
+            with open(docx_path, "wb") as f:
+                f.write(docx_bytes)
+            
+            cmd = ["libreoffice", "--headless", "--convert-to", "pdf", docx_path, "--outdir", temp_dir]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            pdf_path = os.path.join(temp_dir, "temp_os.pdf")
+            if os.path.exists(pdf_path):
+                with open(pdf_path, "rb") as f_pdf:
+                    return f_pdf.read()
+    except Exception as e:
+        print(f"Erro na conversão PDF: {e}")
+    return None
 
 # =========================================================
 # INTERFACE PRINCIPAL STREAMLIT
@@ -353,7 +377,7 @@ if caminho_brasao:
 
 st.title("📑 Gerador de Ordem de Serviço (OS)")
 st.caption("18º Batalhão de Polícia Militar — PMPR")
-st.write("Envie o arquivo de **Ordem de Operação (OO)** em **PDF** ou **DOCX** para gerar automaticamente a **Ordem de Serviço (OS)** correspondente.")
+st.write("Envie a **Ordem de Operação (OO)** para extração automática e geração da **Ordem de Serviço (OS)**.")
 
 arquivo_oo = st.file_uploader("Envie o arquivo da Ordem de Operação (PDF ou DOCX)", type=["pdf", "docx", "doc"])
 
@@ -361,13 +385,14 @@ if arquivo_oo:
     texto_extraido = extrair_texto_arquivo(arquivo_oo)
     
     if texto_extraido.strip():
-        st.success("Ordem de Operação carregada e analisada com sucesso!")
+        st.success("Ordem de Operação analisada com sucesso!")
         
         parsed_data = parsear_ordem_operacao(texto_extraido)
         
-        st.subheader("📝 Edição e Validação das Informações da OS")
-        st.write("Verifique ou ajuste abaixo os campos extraídos antes de gerar a Ordem de Serviço final em Word:")
+        st.subheader("📝 Informações da Ordem de Serviço")
+        st.write("Ajuste os campos essenciais abaixo antes de gerar os documentos:")
 
+        # TELA ENXUTA: APENAS OS CAMPOS ESSENCIAIS
         col_a, col_b = st.columns(2)
         with col_a:
             num_os = st.text_input("Número da Ordem de Serviço (OS)", value="077")
@@ -376,47 +401,65 @@ if arquivo_oo:
             data_expedicao = st.text_input("Data de Expedição da OS", value=data_atual_extenso())
             nome_operacao = st.text_input("Nome da Operação", value=parsed_data.get('nome_op', 'OPERAÇÃO POLICIAL'))
 
-        finalidade = st.text_area("1. FINALIDADE", value=parsed_data.get('finalidade', ''), height=100)
-        referencias = st.text_area("2. REFERÊNCIAS", value=parsed_data.get('referencias', ''), height=110)
-        situacao = st.text_area("3. SITUAÇÃO E OBJETIVOS", value=parsed_data.get('situacao', ''), height=120)
-        execucao = st.text_area("4. EXECUÇÃO E MISSÃO", value=parsed_data.get('execucao', ''), height=200)
-        logistica = st.text_area("5. ADMINISTRAÇÃO E LOGÍSTICA", value=parsed_data.get('logistica', ''), height=130)
-        relatorios = st.text_area("6. RELATÓRIOS E SISGCOP", value=parsed_data.get('relatorios', ''), height=120)
-        prescricoes = st.text_area("7. PRESCRIÇÕES DIVERSAS", value=parsed_data.get('prescricoes', ''), height=120)
-
         col_c, col_d = st.columns(2)
         with col_c:
             nome_comandante = st.text_input("Comandante / Assinatura", value="Ten.-Cel. QOEM PM Helder de Lima Dantas Junior")
         with col_d:
             cargo_comandante = st.text_input("Cargo / Função", value="Comandante do 18º BPM.")
 
-        distribuicao = st.text_input("Distribuição do Documento", value="Cmdo. 2º CRPM; Cmdo. e Subcmdo. 18º BPM; P/1; P/2; P/3; P/4; P/5; PCS; ROTAM; 1ª, 2ª e 3ª Cias.; PRC; K9; Adjunto COPOM e CPU.")
+        # Guarda os textos detalhados em estado interno da sessão
+        st.session_state['parsed_full_data'] = parsed_data
 
-        if st.button("📄 Gerar Ordem de Serviço (.docx)"):
+        if st.button("🚀 Gerar Ordem de Serviço (Word e PDF)"):
             fields_final = {
                 'num_os': num_os,
                 'num_oo': num_oo,
                 'data_expedicao': data_expedicao,
                 'nome_operacao': nome_operacao,
-                'finalidade': finalidade,
-                'referencias': referencias,
-                'situacao': situacao,
-                'execucao': execucao,
-                'logistica': logistica,
-                'relatorios': relatorios,
-                'prescricoes': prescricoes,
+                'finalidade': parsed_data.get('finalidade', ''),
+                'referencias': parsed_data.get('referencias', ''),
+                'situacao': parsed_data.get('situacao', ''),
+                'execucao': parsed_data.get('execucao', ''),
+                'logistica': parsed_data.get('logistica', ''),
+                'relatorios': parsed_data.get('relatorios', ''),
+                'prescricoes': parsed_data.get('prescricoes', ''),
                 'nome_comandante': nome_comandante,
                 'cargo_comandante': cargo_comandante,
-                'distribuicao': distribuicao
+                'distribuicao': "Cmdo. 2º CRPM; Cmdo. e Subcmdo. 18º BPM; P/1; P/2; P/3; P/4; P/5; PCS; ROTAM; 1ª, 2ª e 3ª Cias.; PRC; K9; Adjunto COPOM e CPU."
             }
             
-            docx_os_bytes = gerar_ordem_servico_docx(fields_final)
+            # 1. Gera DOCX em memória
+            docx_bytes = gerar_ordem_servico_docx(fields_final)
+            st.session_state['generated_docx'] = docx_bytes
             
-            st.download_button(
-                label="📥 Baixar Ordem de Serviço Pronta (.docx)",
-                data=docx_os_bytes,
-                file_name=f"OS_{num_os.replace('/', '_')}_{nome_operacao.replace(' ', '_')}.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
+            # 2. Converte para PDF em memória
+            pdf_bytes = converter_docx_para_pdf(docx_bytes)
+            st.session_state['generated_pdf'] = pdf_bytes
+            st.session_state['filename_base'] = f"OS_{num_os.replace('/', '_')}_{nome_operacao.replace(' ', '_')}"
+
+        # Exibe os botões de download caso já tenham sido gerados
+        if 'generated_docx' in st.session_state:
+            st.markdown("---")
+            st.subheader("📥 Baixar Arquivo Gerado")
+            
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                st.download_button(
+                    label="📄 Baixar em Word (.docx)",
+                    data=st.session_state['generated_docx'],
+                    file_name=f"{st.session_state['filename_base']}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+            
+            with col_d2:
+                if st.session_state.get('generated_pdf'):
+                    st.download_button(
+                        label="📕 Baixar em PDF (.pdf)",
+                        data=st.session_state['generated_pdf'],
+                        file_name=f"{st.session_state['filename_base']}.pdf",
+                        mime="application/pdf"
+                    )
+                else:
+                    st.info("O arquivo Word está pronto! Para baixar em PDF, garanta que o LibreOffice esteja instalado no ambiente.")
     else:
         st.error("Não foi possível extrair texto do arquivo enviado. Verifique se o PDF ou DOCX contém texto pesquisável.")
