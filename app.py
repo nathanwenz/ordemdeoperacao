@@ -237,12 +237,12 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    row = table_hdr.rows
-    row.cells.width = Inches(3.5)
-    row.cells.width = Inches(3.0)
+    r0 = table_hdr.rows[0]
+    r0.cells[0].width = Inches(3.5)
+    r0.cells[1].width = Inches(3.0)
 
     # Célula Esquerda (Unidade)
-    p_left = row.cells.paragraphs
+    p_left = r0.cells[0].paragraphs[0]
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -251,7 +251,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.size = Pt(10)
 
     # Célula Direita (Local, Data, OS)
-    p_right = row.cells.paragraphs
+    p_right = r0.cells[1].paragraphs[0]
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.2
@@ -268,7 +268,7 @@ def gerar_ordem_servico_docx(fields):
     r_div.bold = True
     r_div.font.size = Pt(9)
 
-    # Título da Operação (Com bom espaçamento)
+    # Título da Operação
     p_titulo = doc.add_paragraph()
     p_titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p_titulo.paragraph_format.space_before = Pt(6)
@@ -279,7 +279,7 @@ def gerar_ordem_servico_docx(fields):
     r_tit.font.size = Pt(12)
     r_tit.font.color.rgb = RGBColor(0, 32, 96)
 
-    # Seções Estruturadas da OS (Espaçamento aprimorado)
+    # Seções Estruturadas da OS
     secoes = [
         ("1. FINALIDADE", fields.get('finalidade', '')),
         ("2. REFERÊNCIAS", fields.get('referencias', '')),
