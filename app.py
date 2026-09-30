@@ -331,28 +331,55 @@ def extrair_texto_arquivo(uploaded_file):
     text_limpo = limpar_assinaturas_e_ruidos(text)
     return text_limpo
 
-def extrair_secao(texto, inicio_regex, fim_regex):
-    """Auxiliar para extrair bloco de texto entre duas seções usando Regex sem duplicar títulos"""
-    pattern = f"(?:{inicio_regex})(.*?)(?=(?:{fim_regex})|$)"
-    match = re.search(pattern, texto, re.DOTALL | re.IGNORECASE)
-    if match and match.group(1):
-        res = match.group(1).strip()
-        res = re.sub(r'\n{3,}', '\n\n', res)
-        return res
-    return ""
-
-def limpar_cabecalho_redundante(conteudo):
-    """Remove linhas de cabeçalho duplicadas que tenham ficado no início do texto extraído"""
+def limpar_secao_conteudo(conteudo):
+    """
+    Remove linhas no início do bloco que repitam o título principal da seção.
+    """
     if not conteudo:
         return ""
-    linhas = conteudo.strip().split('\n')
+    linhas = [l.strip() for l in conteudo.strip().split('\n') if l.strip()]
+    if not linhas:
+        return ""
+        
     while linhas:
-        primeira = linhas[0].strip()
-        if re.match(r'^\s*(\d+\.?\s*)?(FINALIDADE|SITUAÇÃO|MISSÃO|EXECUÇÃO|ADMINISTRAÇÃO|LOGÍSTICA|RELATÓRIOS|PRESCRIÇÕES\s+DIVERSAS|REFERÊNCIAS)\s*$', primeira, re.IGNORECASE):
+        primeira = linhas[0]
+        if re.match(r'^\d*\.?\s*(FINALIDADE|SITUAÇÃO|MISSÃO|EXECUÇÃO|ADMINISTRAÇÃO|LOGÍSTICA|RELATÓRIOS|PRESCRIÇÕES\s+DIVERSAS|REFERÊNCIAS)\b', primeira, re.IGNORECASE):
             linhas.pop(0)
         else:
             break
+            
     return '\n'.join(linhas).strip()
+
+def extrair_secao_perfeita(texto, padrao_inicio, padrao_fim):
+    """
+    Extrai o conteúdo de uma seção consumindo a linha inteira do título de início,
+    evitando que fragmentos da linha do título fiquem no corpo do texto.
+    """
+    regex_inicio = rf'^[ \t]*\d*\.?\s*{padrao_inicio}[^\n]*\n'
+    match_inicio = re.search(regex_inicio, texto, re.IGNORECASE | re.MULTILINE)
+    
+    if not match_inicio:
+        regex_fallback = rf'{padrao_inicio}'
+        match_fb = re.search(regex_fallback, texto, re.IGNORECASE)
+        if not match_fb:
+            return ""
+        pos_inicio = match_fb.end()
+        nl = texto.find('\n', pos_inicio)
+        pos_conteudo = nl + 1 if nl != -1 else pos_inicio
+    else:
+        pos_conteudo = match_inicio.end()
+        
+    conteudo_restante = texto[pos_conteudo:]
+    
+    regex_fim = rf'^[ \t]*\d*\.?\s*(?:{padrao_fim})[^\n]*'
+    match_fim = re.search(regex_fim, conteudo_restante, re.IGNORECASE | re.MULTILINE)
+    
+    if match_fim:
+        conteudo_secao = conteudo_restante[:match_fim.start()]
+    else:
+        conteudo_secao = conteudo_restante
+        
+    return limpar_secao_conteudo(conteudo_secao)
 
 def parsear_ordem_operacao(texto):
     """Analisa a Ordem de Operação e extrai os campos em ordem numérica estrita sem duplicações"""
@@ -373,27 +400,27 @@ def parsear_ordem_operacao(texto):
     dados['nome_op'] = dados['nome_op'].replace('\n', ' ').strip().upper()
 
     # Seção 1: FINALIDADE
-    finalidade = extrair_secao(texto, r'1\.?\s*FINALIDADE|FINALIDADE', r'\n+2\.?\s*SITUAÇÃO')
-    dados['finalidade'] = limpar_cabecalho_redundante(finalidade) if finalidade else "Realizar ações de policiamento ostensivo preventivo e preservação da ordem pública."
+    finalidade = extrair_secao_perfeita(texto, r'FINALIDADE', r'SITUAÇÃO')
+    dados['finalidade'] = finalidade if finalidade else "Realizar ações de policiamento ostensivo preventivo e preservação da ordem pública."
 
     # Seção 2: SITUAÇÃO
-    situacao = extrair_secao(texto, r'2\.?\s*SITUAÇÃO|SITUAÇÃO', r'\n+3\.?\s*MISSÃO')
-    dados['situacao'] = limpar_cabecalho_redundante(situacao) if situacao else "Ações de policiamento ostensivo e preventivo para a manutenção da ordem pública."
+    situacao = extrair_secao_perfeita(texto, r'SITUAÇÃO', r'MISSÃO')
+    dados['situacao'] = situacao if situacao else "Ações de policiamento ostensivo e preventivo para a manutenção da ordem pública."
 
     # Seção 3: MISSÃO
-    missao = extrair_secao(texto, r'3\.?\s*MISSÃO|MISSÃO', r'\n+4\.?\s*EXECUÇÃO')
-    dados['missao'] = limpar_cabecalho_redundante(missao) if missao else "O 18º BPM executará o policiamento ostensivo e de preservação da ordem pública na sua circunscrição territorial."
+    missao = extrair_secao_perfeita(texto, r'MISSÃO', r'EXECUÇÃO')
+    dados['missao'] = missao if missao else "O 18º BPM executará o policiamento ostensivo e de preservação da ordem pública na sua circunscrição territorial."
 
     # Seção 4: EXECUÇÃO
-    execucao = extrair_secao(texto, r'4\.?\s*EXECUÇÃO|EXECUÇÃO', r'\n+5\.?\s*ADMINISTRAÇÃO|\n+5\.?\s*LOGÍSTICA')
-    dados['execucao'] = limpar_cabecalho_redundante(execucao) if execucao else "Atuação integrada das equipes operacionais do 18º BPM em conformidade com o planejamento."
+    execucao = extrair_secao_perfeita(texto, r'EXECUÇÃO', r'ADMINISTRAÇÃO|LOGÍSTICA')
+    dados['execucao'] = execucao if execucao else "Atuação integrada das equipes operacionais do 18º BPM em conformidade com o planejamento."
 
     # Seção 5: ADMINISTRAÇÃO E LOGÍSTICA
-    logistica = extrair_secao(texto, r'5\.?\s*ADMINISTRAÇÃO|5\.?\s*LOGÍSTICA|ADMINISTRAÇÃO/LOGÍSTICA', r'\n+6\.?\s*RELATÓRIOS|\n+6\.?\s*PRESCRIÇÕES')
-    dados['logistica'] = limpar_cabecalho_redundante(logistica) if logistica else "Uniforme: Orgânico da OPM (4º RUPM).\nArmamento e equipamento: Orgânico compatível com o serviço.\nTransporte: Viaturas operacionais do 18º BPM."
+    logistica = extrair_secao_perfeita(texto, r'ADMINISTRAÇÃO|LOGÍSTICA', r'RELATÓRIOS|PRESCRIÇÕES')
+    dados['logistica'] = logistica if logistica else "Uniforme: Orgânico da OPM (4º RUPM).\nArmamento e equipamento: Orgânico compatível com o serviço.\nTransporte: Viaturas operacionais do 18º BPM."
 
     # Seção 6: RELATÓRIOS E SISGCOP
-    relatorios = extrair_secao(texto, r'6\.?\s*RELATÓRIOS|RELATÓRIOS', r'\n+7\.?\s*PRESCRIÇÕES|\n+REFERÊNCIAS')
+    relatorios = extrair_secao_perfeita(texto, r'RELATÓRIOS', r'PRESCRIÇÕES|REFERÊNCIAS')
     
     match_sisgcop = re.search(r'(\d{5,6})\s*[\-–]?\s*[\"“]?OPERAÇÃO', texto, re.IGNORECASE)
     if not match_sisgcop:
@@ -402,18 +429,18 @@ def parsear_ordem_operacao(texto):
     num_sisgcop = match_sisgcop.group(1) if match_sisgcop else ""
     
     if relatorios:
-        dados['relatorios'] = limpar_cabecalho_redundante(relatorios)
+        dados['relatorios'] = relatorios
     else:
         dados['relatorios'] = f"Os resultados obtidos deverão ser lançados no SISGCOP{' sob o código ' + num_sisgcop if num_sisgcop else ''} até o término da operação. Confecção dos Boletins de Ocorrência (BOU) no SADE."
 
     # Seção 7: PRESCRIÇÕES DIVERSAS
-    prescricoes = extrair_secao(texto, r'7\.?\s*PRESCRIÇÕES DIVERSAS|PRESCRIÇÕES DIVERSAS', r'\n+REFERÊNCIAS|\n+DISTRIBUIÇÃO')
-    dados['prescricoes'] = limpar_cabecalho_redundante(prescricoes) if prescricoes else "Os policiais militares deverão atuar com bom senso, urbanidade, legalidade e estrito cumprimento do dever legal. Preleção obrigatória antes do início do serviço."
+    prescricoes = extrair_secao_perfeita(texto, r'PRESCRIÇÕES\s+DIVERSAS|PRESCRIÇÕES', r'REFERÊNCIAS|DISTRIBUIÇÃO')
+    dados['prescricoes'] = prescricoes if prescricoes else "Os policiais militares deverão atuar com bom senso, urbanidade, legalidade e estrito cumprimento do dever legal. Preleção obrigatória antes do início do serviço."
 
     # REFERÊNCIAS (No final do documento)
-    ref_extracted = extrair_secao(texto, r'REFERÊNCIAS', r'DISTRIBUIÇÃO|$')
+    ref_extracted = extrair_secao_perfeita(texto, r'REFERÊNCIAS', r'DISTRIBUIÇÃO|$')
     if ref_extracted and len(ref_extracted.strip()) > 10:
-        dados['referencias'] = limpar_cabecalho_redundante(ref_extracted)
+        dados['referencias'] = ref_extracted
     else:
         dados['referencias'] = f"a) Constituição da República Federativa do Brasil de 1988;\nb) Constituição do Estado do Paraná de 1989;\nc) Lei n.º 22.354/2025 – Lei de Organização Básica da PMPR;\nd) Ordem de Operação nº {dados['num_oo']} – 2º CRPM ({dados['nome_op']});\ne) Determinação do Comandante do 18º BPM."
 
@@ -428,7 +455,7 @@ def eh_titulo_subsecao(linha):
         return True
     if re.match(r'^\d+(\.\d+)+[\.\)\-]?\s+', l):
         return True
-    if re.match(r'^(FASE|ETAPA|GRUPO|ROTA)\s+', l, re.IGNORECASE):
+    if re.match(r'^(FASE|ETAPA|GRUPO|ROTA|ZONA)\s+', l, re.IGNORECASE):
         return True
     if re.match(r'^[I|V|X]+[\.\)\-]\s+', l, re.IGNORECASE):
         return True
