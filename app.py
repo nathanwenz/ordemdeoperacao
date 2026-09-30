@@ -363,8 +363,7 @@ def extrair_secao_flexivel(texto, padrao_inicio, padraos_fim):
 
 def normalizar_subnumeracao_secao(conteudo, sec_num):
     """
-    Normaliza rigorosamente a sub-numeração dentro de uma seção para que reflita o número correto da seção sec_num.
-    Remove repetições de cabeçalhos de seção, números isolados e re-sequencia sub-itens desalinhados.
+    Normaliza a sub-numeração dentro de uma seção para refletir a numeração do pai (ex: 2.1., 2.2.).
     """
     if not conteudo:
         return ""
@@ -393,20 +392,19 @@ def normalizar_subnumeracao_secao(conteudo, sec_num):
         if padrao_numero_isolado.match(l_str):
             continue
 
-        match_sub = re.match(r'^(\d+)\.(\d+)(\.\d+)?\s*(.*)', l_str)
+        match_sub = re.match(r'^(\d+)\.(\d+)(\.?)\s*(.*)', l_str)
         if match_sub:
-            prefix_main, prefix_sub, prefix_subsub, rest = match_sub.groups()
-            prefix_subsub = prefix_subsub if prefix_subsub else ""
+            prefix_main, prefix_sub, prefix_dot, rest = match_sub.groups()
 
             curr_sub_num = int(prefix_sub)
-            sub_key = f"{sec_num}.{curr_sub_num}{prefix_subsub}"
+            sub_key = f"{sec_num}.{curr_sub_num}"
 
             if int(prefix_main) != sec_num or sub_key in seen_subnums:
-                new_sub_str = f"{sec_num}.{sub_counter}{prefix_subsub} {rest}"
-                seen_subnums.add(f"{sec_num}.{sub_counter}{prefix_subsub}")
+                new_sub_str = f"{sec_num}.{sub_counter}. {rest}".strip()
+                seen_subnums.add(f"{sec_num}.{sub_counter}")
                 sub_counter += 1
             else:
-                new_sub_str = f"{sec_num}.{curr_sub_num}{prefix_subsub} {rest}"
+                new_sub_str = f"{sec_num}.{curr_sub_num}. {rest}".strip()
                 seen_subnums.add(sub_key)
                 sub_counter = max(sub_counter, curr_sub_num + 1)
 
@@ -417,7 +415,7 @@ def normalizar_subnumeracao_secao(conteudo, sec_num):
     return "\n".join(linhas_limpas).strip()
 
 def parsear_ordem_operacao(texto):
-    """Analisa a Ordem de Operação e extrai os campos em ordem estrita de títulos: 1. Finalidade, 2. Informações Gerais, 3. Missão..."""
+    """Analisa a Ordem de Operação e extrai os campos na sequência exata pedida: 1. FINALIDADE, 2. INFORMAÇÕES GERAIS, 3. MISSÃO..."""
     dados = {}
     
     # Número da OO
@@ -439,14 +437,22 @@ def parsear_ordem_operacao(texto):
     f = normalizar_subnumeracao_secao(f, 1)
     dados['finalidade'] = f if f else "Realizar ações de policiamento ostensivo preventivo e preservação da ordem pública."
 
-    # 2. INFORMAÇÕES GERAIS (Reúne todo o contexto situacional e informações gerais da Seção 2 da OO)
-    ig = extrair_secao_flexivel(texto, r'SITUAÇÃO|INFORMAÇÕES\s+GERAIS', [r'MISSÃO', r'EXECUÇÃO'])
-    ig = re.sub(r'^\s*\d*\.?\s*(SITUAÇÃO|INFORMAÇÕES\s+GERAIS)\s*$', '', ig, flags=re.IGNORECASE | re.MULTILINE)
-    ig = re.sub(r'^\s*2\.1\s*INFORMAÇÕES\s+GERAIS\s*$', '', ig, flags=re.IGNORECASE | re.MULTILINE)
-    ig = normalizar_subnumeracao_secao(ig, 2)
-    dados['informacoes_gerais'] = ig if ig else f"A Operação “{dados['nome_op']}” possui abrangência na área do 18º BPM, visando a preservação da ordem pública e segurança da comunidade."
+    # 2. INFORMAÇÕES GERAIS (Garante que a sub-seção venha com '2.1. SITUAÇÃO')
+    ig_raw = extrair_secao_flexivel(texto, r'SITUAÇÃO|INFORMAÇÕES\s+GERAIS', [r'MISSÃO', r'EXECUÇÃO'])
+    
+    # Limpa cabeçalhos repetidos
+    ig = re.sub(r'^\s*\d*\.?\s*(SITUAÇÃO|INFORMAÇÕES\s+GERAIS)\s*$', '', ig_raw, flags=re.IGNORECASE | re.MULTILINE)
+    
+    # Substitui qualquer '2.1 INFORMAÇÕES GERAIS' por '2.1. SITUAÇÃO'
+    ig = re.sub(r'^\s*\d+\.\d+\.?\s*(INFORMAÇÕES\s+GERAIS|SITUAÇÃO)', '2.1. SITUAÇÃO', ig, flags=re.IGNORECASE | re.MULTILINE)
+    
+    if '2.1. SITUAÇÃO' not in ig and '2.1 SITUAÇÃO' not in ig:
+        ig = "2.1. SITUAÇÃO\n" + ig.strip()
 
-    # 3. MISSÃO (Garantida e preservada na Seção 3)
+    ig = normalizar_subnumeracao_secao(ig, 2)
+    dados['informacoes_gerais'] = ig
+
+    # 3. MISSÃO (Garantida na 3ª posição)
     m = extrair_secao_flexivel(texto, r'MISSÃO', [r'EXECUÇÃO', r'ADMINISTRAÇÃO', r'LOGÍSTICA'])
     if not m or len(m) < 10:
         m = f"O 18º BPM executará o policiamento ostensivo e a preservação da ordem pública na sua circunscrição territorial no âmbito da “{dados['nome_op']}”, visando a prevenção de crimes e a garantia da segurança pública."
@@ -556,7 +562,7 @@ def renderizar_conteudo_docx(doc, conteudo):
                     for c_idx, cell_value in enumerate(row_data):
                         if c_idx < len(row_cells):
                             cell = row_cells[c_idx]
-                            p = cell.paragraphs[0] if cell.paragraphs else cell.add_paragraph()
+                            p = cell.paragraphs if cell.paragraphs else cell.add_paragraph()
                             p.paragraph_format.space_before = Pt(3)
                             p.paragraph_format.space_after = Pt(3)
                             p.paragraph_format.line_spacing = 1.15
@@ -622,7 +628,7 @@ def gerar_ordem_servico_docx(fields):
         section.left_margin = Inches(0.8)
         section.right_margin = Inches(0.8)
 
-    # Tabela de Cabeçalho Institucional
+    # Tabela de Cabeçalho Institucional (Acesso Seguro por Índice de Vetor)
     table_hdr = doc.add_table(rows=1, cols=2)
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -631,11 +637,14 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.columns[1].width = Inches(3.0)
     
     row0 = table_hdr.rows[0]
-    row0.cells[0].width = Inches(3.5)
-    row0.cells[1].width = Inches(3.0)
+    cell_left = row0.cells[0]
+    cell_right = row0.cells[1]
+    
+    cell_left.width = Inches(3.5)
+    cell_right.width = Inches(3.0)
 
     # Célula Esquerda (Unidade)
-    p_left = row0.cells[0].paragraphs[0]
+    p_left = cell_left.paragraphs[0]
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -644,7 +653,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.size = Pt(10)
 
     # Célula Direita (Local, Data, OS)
-    p_right = row0.cells[1].paragraphs[0]
+    p_right = cell_right.paragraphs[0]
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.2
