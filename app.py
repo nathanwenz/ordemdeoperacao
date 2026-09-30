@@ -437,13 +437,11 @@ def parsear_ordem_operacao(texto):
     f = normalizar_subnumeracao_secao(f, 1)
     dados['finalidade'] = f if f else "Realizar ações de policiamento ostensivo preventivo e preservação da ordem pública."
 
-    # 2. INFORMAÇÕES GERAIS (Garante que a sub-seção venha com '2.1. SITUAÇÃO')
+    # 2. INFORMAÇÕES GERAIS (Garante o sub-item '2.1. SITUAÇÃO')
     ig_raw = extrair_secao_flexivel(texto, r'SITUAÇÃO|INFORMAÇÕES\s+GERAIS', [r'MISSÃO', r'EXECUÇÃO'])
     
-    # Limpa cabeçalhos repetidos
+    # Limpa marcadores redundantes de início
     ig = re.sub(r'^\s*\d*\.?\s*(SITUAÇÃO|INFORMAÇÕES\s+GERAIS)\s*$', '', ig_raw, flags=re.IGNORECASE | re.MULTILINE)
-    
-    # Substitui qualquer '2.1 INFORMAÇÕES GERAIS' por '2.1. SITUAÇÃO'
     ig = re.sub(r'^\s*\d+\.\d+\.?\s*(INFORMAÇÕES\s+GERAIS|SITUAÇÃO)', '2.1. SITUAÇÃO', ig, flags=re.IGNORECASE | re.MULTILINE)
     
     if '2.1. SITUAÇÃO' not in ig and '2.1 SITUAÇÃO' not in ig:
@@ -539,7 +537,7 @@ def renderizar_conteudo_docx(doc, conteudo):
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
                 cels = [c.strip() for c in linhas[i].split('|')]
-                if len(cels) > 1 and cels == "":
+                if len(cels) > 1 and cels[0] == "":
                     cels = cels[1:]
                 if len(cels) > 1 and cels[-1] == "":
                     cels = cels[:-1]
@@ -562,7 +560,7 @@ def renderizar_conteudo_docx(doc, conteudo):
                     for c_idx, cell_value in enumerate(row_data):
                         if c_idx < len(row_cells):
                             cell = row_cells[c_idx]
-                            p = cell.paragraphs if cell.paragraphs else cell.add_paragraph()
+                            p = cell.paragraphs[0] if cell.paragraphs else cell.add_paragraph()
                             p.paragraph_format.space_before = Pt(3)
                             p.paragraph_format.space_after = Pt(3)
                             p.paragraph_format.line_spacing = 1.15
@@ -752,7 +750,7 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body, style_tab
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
                 cels = [c.strip() for c in linhas[i].split('|')]
-                if len(cels) > 1 and cels == "":
+                if len(cels) > 1 and cels[0] == "":
                     cels = cels[1:]
                 if len(cels) > 1 and cels[-1] == "":
                     cels = cels[:-1]
