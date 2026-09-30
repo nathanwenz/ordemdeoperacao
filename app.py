@@ -21,11 +21,6 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
-# Patterns Regex para sub-numeração, tópicos (a), b), 1., 2.) e fases da operação
-subnum_pattern = re.compile(r'^(\d+\.\d+(?:\.\d+)?)\s*(.*)', re.IGNORECASE)
-topic_pattern = re.compile(r'^([a-z0-9]{1,3}[\.\)])\s*(.*)', re.IGNORECASE)
-phase_pattern = re.compile(r'^(FASE\s+\d+|FASE\s+[I|V|X]+|\d+[ªº]\s*FASE)\s*[-–:]?\s*(.*)', re.IGNORECASE)
-
 # Configuração da página e tema
 st.set_page_config(page_title="18º BPM — Gerador de Ordem de Serviço", page_icon="📑", layout="centered")
 
@@ -280,7 +275,7 @@ def extrair_texto_arquivo(uploaded_file):
                         return True
 
                     filtered_page = page.filter(not_in_table)
-                    tables_sorted = sorted(tables, key=lambda t: t.bbox[1])
+                    tables_sorted = sorted(tables, key=lambda t: t.bbox)
                     
                     page_content = []
                     last_top = 0
@@ -325,7 +320,7 @@ def extrair_texto_arquivo(uploaded_file):
                 tbl = docx.table.Table(element, doc)
                 table_lines = []
                 for row in tbl.rows:
-                    row_cells = [c.text.replace('\n', ' ').strip() for c in r.cells]
+                    row_cells = [c.text.replace('\n', ' ').strip() for c in row.cells]
                     if any(cell for cell in row_cells):
                         table_lines.append(" | ".join(row_cells))
                 if table_lines:
@@ -337,6 +332,7 @@ def extrair_texto_arquivo(uploaded_file):
     return text_limpo
 
 def extrair_secao(texto, inicio_regex, fim_regex):
+    """Auxiliar para extrair bloco de texto entre duas seções usando Regex sem duplicar títulos"""
     pattern = f"(?:{inicio_regex})(.*?)(?=(?:{fim_regex})|$)"
     match = re.search(pattern, texto, re.DOTALL | re.IGNORECASE)
     if match and match.group(1):
@@ -345,8 +341,21 @@ def extrair_secao(texto, inicio_regex, fim_regex):
         return res
     return ""
 
+def limpar_cabecalho_redundante(conteudo):
+    """Remove linhas de cabeçalho duplicadas que tenham ficado no início do texto extraído"""
+    if not conteudo:
+        return ""
+    linhas = conteudo.strip().split('\n')
+    while linhas:
+        primeira = linhas.strip()
+        if re.match(r'^\s*(\d+\.?\s*)?(FINALIDADE|SITUAÇÃO|MISSÃO|EXECUÇÃO|ADMINISTRAÇÃO|LOGÍSTICA|RELATÓRIOS|PRESCRIÇÕES\s+DIVERSAS|REFERÊNCIAS)\s*$', primeira, re.IGNORECASE):
+            linhas.pop(0)
+        else:
+            break
+    return '\n'.join(linhas).strip()
+
 def parsear_ordem_operacao(texto):
-    """Analisa a Ordem de Operação e extrai os campos estruturados para a OS"""
+    """Analisa a Ordem de Operação e extrai os campos em ordem numérica estrita sem duplicações"""
     dados = {}
     
     # 1. Número da OO
@@ -363,28 +372,28 @@ def parsear_ordem_operacao(texto):
 
     dados['nome_op'] = dados['nome_op'].replace('\n', ' ').strip().upper()
 
-    # 3. Finalidade
-    finalidade = extrair_secao(texto, r'1\.?\s*FINALIDADE', r'\n+2\.?\s*SITUAÇÃO')
-    if not finalidade:
-        finalidade = extrair_secao(texto, r'FINALIDADE', r'SITUAÇÃO')
-    dados['finalidade'] = finalidade if finalidade else "Realizar ações de policiamento ostensivo preventivo e preservação da ordem pública."
+    # Seção 1: FINALIDADE
+    finalidade = extrair_secao(texto, r'1\.?\s*FINALIDADE|FINALIDADE', r'\n+2\.?\s*SITUAÇÃO')
+    dados['finalidade'] = limpar_cabecalho_redundante(finalidade) if finalidade else "Realizar ações de policiamento ostensivo preventivo e preservação da ordem pública."
 
-    # 4. Situação / Contexto
-    situacao = extrair_secao(texto, r'2\.?\s*SITUAÇÃO', r'\n+3\.?\s*MISSÃO')
-    dados['situacao'] = situacao if situacao else "Ações de policiamento ostensivo e preventivo para a manutenção da ordem pública."
+    # Seção 2: SITUAÇÃO
+    situacao = extrair_secao(texto, r'2\.?\s*SITUAÇÃO|SITUAÇÃO', r'\n+3\.?\s*MISSÃO')
+    dados['situacao'] = limpar_cabecalho_redundante(situacao) if situacao else "Ações de policiamento ostensivo e preventivo para a manutenção da ordem pública."
 
-    # 5. Missão / Execução
-    execucao = extrair_secao(texto, r'4\.?\s*EXECUÇÃO|3\.?\s*MISSÃO', r'\n+5\.?\s*ADMINISTRAÇÃO|\n+5\.?\s*LOGÍSTICA')
-    if not execucao:
-        execucao = extrair_secao(texto, r'EXECUÇÃO', r'ADMINISTRAÇÃO')
-    dados['execucao'] = execucao if execucao else "Atuação integrada das equipes operacionais do 18º BPM em conformidade com o planejamento."
+    # Seção 3: MISSÃO
+    missao = extrair_secao(texto, r'3\.?\s*MISSÃO|MISSÃO', r'\n+4\.?\s*EXECUÇÃO')
+    dados['missao'] = limpar_cabecalho_redundante(missao) if missao else "O 18º BPM executará o policiamento ostensivo e de preservação da ordem pública na sua circunscrição territorial."
 
-    # 6. Logística / Administração
-    logistica = extrair_secao(texto, r'5\.?\s*ADMINISTRAÇÃO|5\.?\s*LOGÍSTICA', r'\n+6\.?\s*RELATÓRIOS|\n+6\.?\s*PRESCRIÇÕES')
-    dados['logistica'] = logistica if logistica else "Uniforme: Orgânico da OPM (4º RUPM).\nArmamento e equipamento: Orgânico compatível com o serviço.\nTransporte: Viaturas operacionais do 18º BPM."
+    # Seção 4: EXECUÇÃO
+    execucao = extrair_secao(texto, r'4\.?\s*EXECUÇÃO|EXECUÇÃO', r'\n+5\.?\s*ADMINISTRAÇÃO|\n+5\.?\s*LOGÍSTICA')
+    dados['execucao'] = limpar_cabecalho_redundante(execucao) if execucao else "Atuação integrada das equipes operacionais do 18º BPM em conformidade com o planejamento."
 
-    # 7. Relatórios e SISGCOP
-    relatorios = extrair_secao(texto, r'6\.?\s*RELATÓRIOS', r'\n+7\.?\s*PRESCRIÇÕES|\n+REFERÊNCIAS')
+    # Seção 5: ADMINISTRAÇÃO E LOGÍSTICA
+    logistica = extrair_secao(texto, r'5\.?\s*ADMINISTRAÇÃO|5\.?\s*LOGÍSTICA|ADMINISTRAÇÃO/LOGÍSTICA', r'\n+6\.?\s*RELATÓRIOS|\n+6\.?\s*PRESCRIÇÕES')
+    dados['logistica'] = limpar_cabecalho_redundante(logistica) if logistica else "Uniforme: Orgânico da OPM (4º RUPM).\nArmamento e equipamento: Orgânico compatível com o serviço.\nTransporte: Viaturas operacionais do 18º BPM."
+
+    # Seção 6: RELATÓRIOS E SISGCOP
+    relatorios = extrair_secao(texto, r'6\.?\s*RELATÓRIOS|RELATÓRIOS', r'\n+7\.?\s*PRESCRIÇÕES|\n+REFERÊNCIAS')
     
     match_sisgcop = re.search(r'(\d{5,6})\s*[\-–]?\s*[\"“]?OPERAÇÃO', texto, re.IGNORECASE)
     if not match_sisgcop:
@@ -393,18 +402,39 @@ def parsear_ordem_operacao(texto):
     num_sisgcop = match_sisgcop.group(1) if match_sisgcop else ""
     
     if relatorios:
-        dados['relatorios'] = relatorios
+        dados['relatorios'] = limpar_cabecalho_redundante(relatorios)
     else:
         dados['relatorios'] = f"Os resultados obtidos deverão ser lançados no SISGCOP{' sob o código ' + num_sisgcop if num_sisgcop else ''} até o término da operação. Confecção dos Boletins de Ocorrência (BOU) no SADE."
 
-    # 8. Prescrições Diversas
+    # Seção 7: PRESCRIÇÕES DIVERSAS
     prescricoes = extrair_secao(texto, r'7\.?\s*PRESCRIÇÕES DIVERSAS|PRESCRIÇÕES DIVERSAS', r'\n+REFERÊNCIAS|\n+DISTRIBUIÇÃO')
-    dados['prescricoes'] = prescricoes if prescricoes else "Os policiais militares deverão atuar com bom senso, urbanidade, legalidade e estrito cumprimento do dever legal. Preleção obrigatória antes do início do serviço."
+    dados['prescricoes'] = limpar_cabecalho_redundante(prescricoes) if prescricoes else "Os policiais militares deverão atuar com bom senso, urbanidade, legalidade e estrito cumprimento do dever legal. Preleção obrigatória antes do início do serviço."
 
-    # 9. Referências Padrão
-    dados['referencias'] = f"a) Constituição da República Federativa do Brasil de 1988;\nb) Constituição do Estado do Paraná de 1989;\nc) Lei n.º 22.354/2025 – Lei de Organização Básica da PMPR;\nd) Ordem de Operação nº {dados['num_oo']} – 2º CRPM ({dados['nome_op']});\ne) Determinação do Comandante do 18º BPM."
+    # REFERÊNCIAS (No final do documento)
+    ref_extracted = extrair_secao(texto, r'REFERÊNCIAS', r'DISTRIBUIÇÃO|$')
+    if ref_extracted and len(ref_extracted.strip()) > 10:
+        dados['referencias'] = limpar_cabecalho_redundante(ref_extracted)
+    else:
+        dados['referencias'] = f"a) Constituição da República Federativa do Brasil de 1988;\nb) Constituição do Estado do Paraná de 1989;\nc) Lei n.º 22.354/2025 – Lei de Organização Básica da PMPR;\nd) Ordem de Operação nº {dados['num_oo']} – 2º CRPM ({dados['nome_op']});\ne) Determinação do Comandante do 18º BPM."
 
     return dados
+
+def eh_titulo_subsecao(linha):
+    """Verifica se uma linha é um título ou subtópico que deve ser formatado EM NEGRITO INTEIRO"""
+    l = linha.strip()
+    if not l:
+        return False
+    if l.endswith(':') and len(l) < 90:
+        return True
+    if re.match(r'^\d+(\.\d+)+[\.\)\-]?\s+', l):
+        return True
+    if re.match(r'^(FASE|ETAPA|GRUPO|ROTA)\s+', l, re.IGNORECASE):
+        return True
+    if re.match(r'^[I|V|X]+[\.\)\-]\s+', l, re.IGNORECASE):
+        return True
+    if l.isupper() and len(l) < 90 and not '|' in l and not l.startswith('PMPR'):
+        return True
+    return False
 
 # =========================================================
 # GERADOR DO DOCUMENTO WORD (.DOCX)
@@ -428,7 +458,7 @@ def renderizar_conteudo_docx(doc, conteudo):
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
                 cels = [c.strip() for c in linhas[i].split('|')]
-                if len(cels) > 1 and cels[0] == "":
+                if len(cels) > 1 and cels == "":
                     cels = cels[1:]
                 if len(cels) > 1 and cels[-1] == "":
                     cels = cels[:-1]
@@ -451,7 +481,7 @@ def renderizar_conteudo_docx(doc, conteudo):
                     for c_idx, cell_value in enumerate(row_data):
                         if c_idx < len(row_cells):
                             cell = row_cells[c_idx]
-                            p = cell.paragraphs[0]
+                            p = cell.paragraphs
                             p.paragraph_format.space_before = Pt(3)
                             p.paragraph_format.space_after = Pt(3)
                             p.paragraph_format.line_spacing = 1.15
@@ -473,37 +503,37 @@ def renderizar_conteudo_docx(doc, conteudo):
                 p_sp.paragraph_format.space_after = Pt(4)
             continue
             
-        m_sub = subnum_pattern.match(linha)
-        m_phase = phase_pattern.match(linha)
-        m_top = topic_pattern.match(linha)
-
         p = doc.add_paragraph()
         p.paragraph_format.line_spacing = 1.2
 
-        if m_sub or m_phase:
+        if eh_titulo_subsecao(linha):
             p.paragraph_format.space_before = Pt(10)
             p.paragraph_format.space_after = Pt(4)
             r = p.add_run(linha)
             r.bold = True
             r.font.name = "Arial"
             r.font.size = Pt(10.5)
-        elif m_top:
-            idx_marker, rest = m_top.groups()
-            p.paragraph_format.space_before = Pt(3)
-            p.paragraph_format.space_after = Pt(4)
-            r_idx = p.add_run(idx_marker + " ")
-            r_idx.bold = True
-            r_idx.font.name = "Arial"
-            r_idx.font.size = Pt(10)
-            r_rest = p.add_run(rest)
-            r_rest.font.name = "Arial"
-            r_rest.font.size = Pt(10)
         else:
-            p.paragraph_format.space_before = Pt(0)
-            p.paragraph_format.space_after = Pt(6)
-            r = p.add_run(linha)
-            r.font.name = "Arial"
-            r.font.size = Pt(10)
+            m_item = re.match(r'^([a-z0-9]{1,3}[\.\)\-]|[A-Z][\.\)\-])\s+(.*)', linha, re.IGNORECASE)
+            if m_item:
+                prefix, rest = m_item.groups()
+                p.paragraph_format.space_before = Pt(3)
+                p.paragraph_format.space_after = Pt(4)
+                
+                r_pre = p.add_run(prefix + " ")
+                r_pre.bold = True
+                r_pre.font.name = "Arial"
+                r_pre.font.size = Pt(10)
+                
+                r_rest = p.add_run(rest)
+                r_rest.font.name = "Arial"
+                r_rest.font.size = Pt(10)
+            else:
+                p.paragraph_format.space_before = Pt(0)
+                p.paragraph_format.space_after = Pt(6)
+                r = p.add_run(linha)
+                r.font.name = "Arial"
+                r.font.size = Pt(10)
         
         i += 1
 
@@ -522,12 +552,12 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    row0 = table_hdr.rows[0]
-    row0.cells[0].width = Inches(3.5)
-    row0.cells[1].width = Inches(3.0)
+    row0 = table_hdr.rows
+    row0.cells.width = Inches(3.5)
+    row0.cells.width = Inches(3.0)
 
     # Célula Esquerda (Unidade)
-    p_left = row0.cells[0].paragraphs[0]
+    p_left = row0.cells.paragraphs
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -536,7 +566,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.size = Pt(10)
 
     # Célula Direita (Local, Data, OS)
-    p_right = row0.cells[1].paragraphs[0]
+    p_right = row0.cells.paragraphs
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.2
@@ -564,15 +594,16 @@ def gerar_ordem_servico_docx(fields):
     r_tit.font.size = Pt(12)
     r_tit.font.color.rgb = RGBColor(0, 32, 96)
 
-    # Seções Estruturadas da OS
+    # Seções Estruturadas em Sequência Numérica Estrita PMPR
     secoes = [
         ("1. FINALIDADE", fields.get('finalidade', '')),
-        ("2. REFERÊNCIAS", fields.get('referencias', '')),
-        ("3. SITUAÇÃO E OBJETIVOS", fields.get('situacao', '')),
-        ("4. EXECUÇÃO E MISSÃO", fields.get('execucao', '')),
+        ("2. SITUAÇÃO", fields.get('situacao', '')),
+        ("3. MISSÃO", fields.get('missao', '')),
+        ("4. EXECUÇÃO", fields.get('execucao', '')),
         ("5. ADMINISTRAÇÃO E LOGÍSTICA", fields.get('logistica', '')),
         ("6. RELATÓRIOS E SISGCOP", fields.get('relatorios', '')),
-        ("7. PRESCRIÇÕES DIVERSAS", fields.get('prescricoes', ''))
+        ("7. PRESCRIÇÕES DIVERSAS", fields.get('prescricoes', '')),
+        ("REFERÊNCIAS", fields.get('referencias', ''))
     ]
 
     for tit, conteudo in secoes:
@@ -635,7 +666,7 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body, style_tab
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
                 cels = [c.strip() for c in linhas[i].split('|')]
-                if len(cels) > 1 and cels[0] == "":
+                if len(cels) > 1 and cels == "":
                     cels = cels[1:]
                 if len(cels) > 1 and cels[-1] == "":
                     cels = cels[:-1]
@@ -677,21 +708,19 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body, style_tab
                 story.append(Spacer(1, 6))
             continue
             
-        m_sub = subnum_pattern.match(linha)
-        m_phase = phase_pattern.match(linha)
-        m_top = topic_pattern.match(linha)
+        l_clean = linha.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
-        if m_sub or m_phase:
-            l_clean = linha.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        if eh_titulo_subsecao(linha):
             story.append(Paragraph(f"<b>{l_clean}</b>", style_subnum))
-        elif m_top:
-            idx_marker, rest = m_top.groups()
-            idx_clean = idx_marker.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            rest_clean = rest.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            story.append(Paragraph(f"<b>{idx_clean}</b> {rest_clean}", style_body))
         else:
-            l_clean = linha.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            story.append(Paragraph(l_clean, style_body))
+            m_item = re.match(r'^([a-z0-9]{1,3}[\.\)\-]|[A-Z][\.\)\-])\s+(.*)', linha, re.IGNORECASE)
+            if m_item:
+                prefix, rest = m_item.groups()
+                p_pre = prefix.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                p_rest = rest.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                story.append(Paragraph(f"<b>{p_pre}</b> {p_rest}", style_body))
+            else:
+                story.append(Paragraph(l_clean, style_body))
             
         i += 1
 
@@ -812,12 +841,13 @@ def gerar_ordem_servico_pdf(fields):
     
     secoes = [
         ("1. FINALIDADE", fields.get('finalidade', '')),
-        ("2. REFERÊNCIAS", fields.get('referencias', '')),
-        ("3. SITUAÇÃO E OBJETIVOS", fields.get('situacao', '')),
-        ("4. EXECUÇÃO E MISSÃO", fields.get('execucao', '')),
+        ("2. SITUAÇÃO", fields.get('situacao', '')),
+        ("3. MISSÃO", fields.get('missao', '')),
+        ("4. EXECUÇÃO", fields.get('execucao', '')),
         ("5. ADMINISTRAÇÃO E LOGÍSTICA", fields.get('logistica', '')),
         ("6. RELATÓRIOS E SISGCOP", fields.get('relatorios', '')),
-        ("7. PRESCRIÇÕES DIVERSAS", fields.get('prescricoes', ''))
+        ("7. PRESCRIÇÕES DIVERSAS", fields.get('prescricoes', '')),
+        ("REFERÊNCIAS", fields.get('referencias', ''))
     ]
     
     for tit, conteudo in secoes:
@@ -883,12 +913,13 @@ if arquivo_oo:
                 'data_expedicao': data_expedicao,
                 'nome_operacao': nome_operacao,
                 'finalidade': parsed_data.get('finalidade', ''),
-                'referencias': parsed_data.get('referencias', ''),
                 'situacao': parsed_data.get('situacao', ''),
+                'missao': parsed_data.get('missao', ''),
                 'execucao': parsed_data.get('execucao', ''),
                 'logistica': parsed_data.get('logistica', ''),
                 'relatorios': parsed_data.get('relatorios', ''),
                 'prescricoes': parsed_data.get('prescricoes', ''),
+                'referencias': parsed_data.get('referencias', ''),
                 'nome_comandante': nome_comandante,
                 'cargo_comandante': cargo_comandante
             }
