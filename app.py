@@ -24,7 +24,7 @@ from reportlab.lib.units import inch
 # =========================================================
 # CONFIGURAÇÃO DA PÁGINA E TEMA VISUAL (DARK MODE)
 # =========================================================
-st.set_page_config(page_title="18º BPM — Portal Operacional", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="Portal Gerador de Relatórios — PM/3", page_icon="🛡️", layout="centered")
 
 def obter_caminho_brasao():
     for nome in ["brasao.png", "brasao.PNG", "Brasao.png", "BRASAO.PNG", "brasao.jpg", "brasao.jpeg"]:
@@ -74,7 +74,7 @@ def gerar_css_app(caminho_img):
             background-color: #1E40AF;
             border-color: #3B82F6;
         }
-        h1, h2, h3 {
+        h1, h2, h3, h4, h5 {
             color: #F3F4F6 !important;
         }
     </style>
@@ -1023,7 +1023,6 @@ def render_modulo_segundo_site():
     st.caption("18º Batalhão de Polícia Militar — PMPR")
     st.write("Módulo de gestão, montagem e validação da Programação Extrajornada Voluntária.")
     
-    # [AQUI FICA A INTERFACE E LÓGICA DO SEU SEGUNDO SITE]
     st.info("Módulo de Programação Extrajornada em operação. Insira seus dados ou arquivos de escala abaixo.")
     
     arquivo_escala = st.file_uploader("Envie a planilha/documento de escala de Extrajornada", type=["docx", "xlsx", "csv"])
@@ -1040,7 +1039,16 @@ def render_tela_entrada():
         with c2:
             st.image(caminho_brasao, width=130)
 
-    st.markdown("<h1 style='text-align: center;'>🛡️ Portal Operacional — 18º BPM</h1>", unsafe_allow_html=True)
+    # NOVO CABEÇALHO DEDICADO E FORMATADO
+    st.markdown("""
+    <div style='text-align: center; margin-bottom: 25px;'>
+        <h1 style='font-size: 26px; font-weight: bold; margin-bottom: 6px;'>🛡️ Portal Gerador de Relatórios 🛡️</h1>
+        <h3 style='color: #60A5FA !important; font-size: 18px; font-weight: 600; margin-top: 0px; margin-bottom: 4px;'>SEÇÃO — PM/3</h3>
+        <h4 style='color: #E0E6ED !important; font-size: 16px; font-weight: 500; margin-top: 0px; margin-bottom: 2px;'>18º BPM</h4>
+        <h5 style='color: #9CA3AF !important; font-size: 14px; font-weight: normal; margin-top: 0px; margin-bottom: 15px;'>2º CRPM</h5>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.markdown("<p style='text-align: center; color: #9CA3AF;'>Selecione abaixo o sistema que deseja acessar:</p>", unsafe_allow_html=True)
     st.write("")
 
