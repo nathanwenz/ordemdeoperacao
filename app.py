@@ -154,7 +154,7 @@ def set_cell_bg(cell, fill_hex):
     tcPr.append(shd)
 
 def limpar_assinaturas_e_ruidos(texto):
-    """Remove totalmente assinaturas eletrônicas, marcas digitais, hash, e-Protocolo e páginas"""
+    """Remove totalmente assinaturas eletrônicas, marcas digitais, hash, e-Protocolo e páginas do texto original"""
     if not texto:
         return ""
     
@@ -542,7 +542,7 @@ def renderizar_conteudo_docx(doc, conteudo, forcar_texto=False):
     if not conteudo_formatado or not conteudo_formatado.strip():
         return
 
-    # Se forcar_texto for True (ex: Prescrições Diversas), removemos qualquer '|' transformando em espaço
+    # Se forcar_texto for True (ex: Prescrições Diversas), substitui delimitadores de tabela por espaço
     if forcar_texto:
         conteudo_formatado = conteudo_formatado.replace('|', ' ')
 
@@ -559,7 +559,7 @@ def renderizar_conteudo_docx(doc, conteudo, forcar_texto=False):
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
                 cels = [c.strip() for c in linhas[i].split('|')]
-                if len(cels) > 1 and cels[0] == "":
+                if len(cels) > 1 and cels == "":
                     cels = cels[1:]
                 if len(cels) > 1 and cels[-1] == "":
                     cels = cels[:-1]
@@ -594,7 +594,7 @@ def renderizar_conteudo_docx(doc, conteudo, forcar_texto=False):
                         for c_idx, cell_value in enumerate(row_data):
                             if c_idx < len(row_cells):
                                 cell = row_cells[c_idx]
-                                p = cell.paragraphs[0] if cell.paragraphs else cell.add_paragraph()
+                                p = cell.paragraphs if cell.paragraphs else cell.add_paragraph()
                                 p.paragraph_format.space_before = Pt(3)
                                 p.paragraph_format.space_after = Pt(3)
                                 p.paragraph_format.line_spacing = 1.15
@@ -663,17 +663,17 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    table_hdr.columns[0].width = Inches(3.5)
-    table_hdr.columns[1].width = Inches(3.0)
+    table_hdr.columns.width = Inches(3.5)
+    table_hdr.columns.width = Inches(3.0)
     
-    row0 = table_hdr.rows[0]
-    cell_left = row0.cells[0]
-    cell_right = row0.cells[1]
+    row0 = table_hdr.rows
+    cell_left = row0.cells
+    cell_right = row0.cells
     
     cell_left.width = Inches(3.5)
     cell_right.width = Inches(3.0)
 
-    p_left = cell_left.paragraphs[0]
+    p_left = cell_left.paragraphs
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -681,7 +681,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.name = "Arial"
     r_l.font.size = Pt(10)
 
-    p_right = cell_right.paragraphs[0]
+    p_right = cell_right.paragraphs
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.2
@@ -727,15 +727,20 @@ def gerar_ordem_servico_docx(fields):
         r_sec.font.name = "Arial"
         r_sec.font.size = Pt(11)
 
-        # REGRA ESTRITA: Se for PRESCRIÇÕES DIVERSAS, força texto puro sem tabela!
+        # Se for PRESCRIÇÕES DIVERSAS, força texto puro sem tabela!
         eh_prescricoes = "PRESCRIÇÕES" in tit.upper()
         renderizar_conteudo_docx(doc, conteudo, forcar_texto=eh_prescricoes)
 
-    # Assinatura limpa do Comandante sem menção eletrônica
+    # Assinatura com "(assinado eletronicamente)" em texto bem pequeno único acima do nome
     p_ass = doc.add_paragraph()
     p_ass.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p_ass.paragraph_format.space_before = Pt(28)
     p_ass.paragraph_format.space_after = Pt(4)
+
+    r_ass1 = p_ass.add_run("(assinado eletronicamente)\n")
+    r_ass1.italic = True
+    r_ass1.font.name = "Arial"
+    r_ass1.font.size = Pt(8.5)
 
     r_ass2 = p_ass.add_run(f"{fields.get('nome_comandante', 'Ten.-Cel. QOEM PM Helder de Lima Dantas Junior')},\n")
     r_ass2.bold = True
@@ -761,7 +766,7 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body, style_tab
     if not conteudo_formatado or not conteudo_formatado.strip():
         return
 
-    # Se forcar_texto for True (ex: Prescrições Diversas), removemos qualquer '|' transformando em espaço
+    # Se forcar_texto for True (ex: Prescrições Diversas), substitui delimitadores de tabela por espaço
     if forcar_texto:
         conteudo_formatado = conteudo_formatado.replace('|', ' ')
 
@@ -777,7 +782,7 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body, style_tab
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
                 cels = [c.strip() for c in linhas[i].split('|')]
-                if len(cels) > 1 and cels[0] == "":
+                if len(cels) > 1 and cels == "":
                     cels = cels[1:]
                 if len(cels) > 1 and cels[-1] == "":
                     cels = cels[:-1]
@@ -857,6 +862,8 @@ def gerar_ordem_servico_pdf(fields):
     style_subnum_title = ParagraphStyle('SubNumTitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10.5, leading=14, textColor=colors.black, spaceBefore=10, spaceAfter=4)
     style_body = ParagraphStyle('BodyTextCustom', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=14, textColor=colors.black, spaceAfter=5)
     style_table_hdr = ParagraphStyle('TableHdrCustom', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9.5, leading=13, textColor=colors.white)
+    
+    style_ass_small = ParagraphStyle('AssinaturaSmall', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=8.5, leading=11, alignment=1, textColor=colors.black)
     style_ass = ParagraphStyle('Assinatura', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=14, alignment=1, textColor=colors.black)
 
     story = []
@@ -898,6 +905,7 @@ def gerar_ordem_servico_pdf(fields):
         renderizar_conteudo_pdf(story, conteudo, style_subnum_title, style_body, style_table_hdr, forcar_texto=eh_prescricoes)
     
     story.append(Spacer(1, 20))
+    story.append(Paragraph("<i>(assinado eletronicamente)</i>", style_ass_small))
     story.append(Paragraph(f"<b>{fields.get('nome_comandante', 'Ten.-Cel. QOEM PM Helder de Lima Dantas Junior')}</b>,", style_ass))
     story.append(Paragraph(f"<b>{fields.get('cargo_comandante', 'Comandante do 18º BPM.')}</b>", style_ass))
 
