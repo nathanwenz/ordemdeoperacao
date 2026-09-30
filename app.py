@@ -37,14 +37,12 @@ caminho_brasao = obter_caminho_brasao()
 def gerar_css_app(caminho_img):
     css_base = """
     <style>
-        /* Estilização dos Containers e Caixas com leve transparência para ver o fundo */
         div[data-testid="stFileUploader"], div[data-testid="stTextInput"] {
             background-color: rgba(30, 34, 45, 0.88) !important;
             border-radius: 10px;
             padding: 10px;
             border: 1px solid #2E364A;
         }
-        /* Botões operacionais */
         .stButton>button {
             background-color: #002060;
             color: #FFFFFF;
@@ -58,7 +56,6 @@ def gerar_css_app(caminho_img):
             background-color: #1E40AF;
             border-color: #3B82F6;
         }
-        /* Títulos */
         h1, h2, h3 {
             color: #F3F4F6 !important;
         }
@@ -157,7 +154,7 @@ def set_cell_bg(cell, fill_hex):
     tcPr.append(shd)
 
 def limpar_assinaturas_e_ruidos(texto):
-    """Remove assinaturas eletrônicas, hash, e-Protocolo, números de páginas e cabeçalhos duplicados"""
+    """Remove assinaturas eletrônicas, hash, e-Protocolo e números de páginas"""
     if not texto:
         return ""
     
@@ -230,7 +227,6 @@ def formatar_quebras_de_secao(texto):
     return '\n'.join(novas_linhas)
 
 def safe_crop_text(page, y0, y1):
-    """Realiza o recorte seguro de área no PDF prevenindo erros de coordenadas"""
     if y1 <= y0 + 1:
         return ""
     y0 = max(0, min(y0, page.height - 1))
@@ -244,10 +240,6 @@ def safe_crop_text(page, y0, y1):
         return ""
 
 def extrair_texto_arquivo(uploaded_file):
-    """
-    Extrai texto e tabelas de PDF ou DOCX em ordem estrita de leitura
-    SEM duplicar o conteúdo das tabelas como texto puro.
-    """
     ext = uploaded_file.name.split(".")[-1].lower()
     text = ""
     
@@ -331,10 +323,6 @@ def extrair_texto_arquivo(uploaded_file):
     return text_limpo
 
 def extrair_secao_flexivel(texto, padrao_inicio, padraos_fim):
-    """
-    Extrai o conteúdo de uma seção consumindo a linha inteira do título de início,
-    buscando flexivelmente até a ocorrência de qualquer um dos padrões em padraos_fim.
-    """
     regex_inicio = rf'^[ \t]*[\d\.]*\s*{padrao_inicio}[^\n]*\n'
     match_inicio = re.search(regex_inicio, texto, re.IGNORECASE | re.MULTILINE)
     
@@ -362,9 +350,6 @@ def extrair_secao_flexivel(texto, padrao_inicio, padraos_fim):
     return conteudo_secao.strip()
 
 def normalizar_subnumeracao_secao(conteudo, sec_num):
-    """
-    Normaliza a sub-numeração dentro de uma seção para refletir a numeração do pai (ex: 2.1., 2.2.).
-    """
     if not conteudo:
         return ""
 
@@ -415,14 +400,11 @@ def normalizar_subnumeracao_secao(conteudo, sec_num):
     return "\n".join(linhas_limpas).strip()
 
 def parsear_ordem_operacao(texto):
-    """Analisa a Ordem de Operação e extrai os campos na sequência exata pedida: 1. FINALIDADE, 2. INFORMAÇÕES GERAIS, 3. MISSÃO..."""
     dados = {}
     
-    # Número da OO
     match_num = re.search(r'ORDEM DE OPERAÇÃO\s*(?:Nº|N°|Nº\.|N°\.|N°\s*|Nº\s*)?(\d+/\d+)', texto, re.IGNORECASE)
     dados['num_oo'] = match_num.group(1) if match_num else "000/2026"
 
-    # Nome da Operação
     match_nome = re.search(r'“([^”]+)”|"([^"]+)"', texto)
     if match_nome:
         dados['nome_op'] = match_nome.group(1) or match_nome.group(2)
@@ -437,9 +419,8 @@ def parsear_ordem_operacao(texto):
     f = normalizar_subnumeracao_secao(f, 1)
     dados['finalidade'] = f if f else "Realizar ações de policiamento ostensivo preventivo e preservação da ordem pública."
 
-    # 2. INFORMAÇÕES GERAIS (Garante o sub-item '2.1. SITUAÇÃO')
+    # 2. INFORMAÇÕES GERAIS
     ig_raw = extrair_secao_flexivel(texto, r'SITUAÇÃO|INFORMAÇÕES\s+GERAIS', [r'MISSÃO', r'EXECUÇÃO'])
-    
     lines_ig = []
     for line in ig_raw.split('\n'):
         l_str = line.strip()
@@ -456,7 +437,7 @@ def parsear_ordem_operacao(texto):
     ig_final = normalizar_subnumeracao_secao(ig_final, 2)
     dados['informacoes_gerais'] = ig_final
 
-    # 3. MISSÃO (Garantida na 3ª posição)
+    # 3. MISSÃO
     m = extrair_secao_flexivel(texto, r'MISSÃO', [r'EXECUÇÃO', r'ADMINISTRAÇÃO', r'LOGÍSTICA'])
     if not m or len(m) < 10:
         m = f"O 18º BPM executará o policiamento ostensivo e a preservação da ordem pública na sua circunscrição territorial no âmbito da “{dados['nome_op']}”, visando a prevenção de crimes e a garantia da segurança pública."
@@ -487,7 +468,7 @@ def parsear_ordem_operacao(texto):
     else:
         dados['relatorios'] = f"Os resultados obtidos deverão ser lançados no SISGCOP{' sob o código ' + num_sisgcop if num_sisgcop else ''} até o término da operação. Confecção dos Boletins de Ocorrência (BOU) no SADE."
 
-    # 7. PRESCRIÇÕES DIVERSAS
+    # 7. PRESCRIÇÕES DIVERSAS (Garantia de Formato em Texto)
     p = extrair_secao_flexivel(texto, r'PRESCRIÇÕES\s+DIVERSAS|PRESCRIÇÕES', [r'REFERÊNCIAS', r'DISTRIBUIÇÃO'])
     if p:
         p = normalizar_subnumeracao_secao(p, 7)
@@ -505,7 +486,6 @@ def parsear_ordem_operacao(texto):
     return dados
 
 def eh_titulo_subsecao(linha):
-    """Verifica se uma linha é um título ou subtópico que deve ser formatado EM NEGRITO INTEIRO"""
     l = linha.strip()
     if not l:
         return False
@@ -538,7 +518,7 @@ def renderizar_conteudo_docx(doc, conteudo):
             i += 1
             continue
             
-        # Tabela detectada por '|'
+        # Tabela detectada apenas se o material original possuir tabela separada por '|'
         if '|' in linha:
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
@@ -625,14 +605,12 @@ def renderizar_conteudo_docx(doc, conteudo):
 def gerar_ordem_servico_docx(fields):
     doc = Document()
 
-    # Margens Amplas e Elegantes
     for section in doc.sections:
         section.top_margin = Inches(0.75)
         section.bottom_margin = Inches(0.75)
         section.left_margin = Inches(0.8)
         section.right_margin = Inches(0.8)
 
-    # Tabela de Cabeçalho Institucional (Acesso Seguro por Índice de Vetor)
     table_hdr = doc.add_table(rows=1, cols=2)
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -647,7 +625,6 @@ def gerar_ordem_servico_docx(fields):
     cell_left.width = Inches(3.5)
     cell_right.width = Inches(3.0)
 
-    # Célula Esquerda (Unidade)
     p_left = cell_left.paragraphs[0]
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
@@ -656,7 +633,6 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.name = "Arial"
     r_l.font.size = Pt(10)
 
-    # Célula Direita (Local, Data, OS)
     p_right = cell_right.paragraphs[0]
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
@@ -666,7 +642,6 @@ def gerar_ordem_servico_docx(fields):
     r_r.font.name = "Arial"
     r_r.font.size = Pt(10)
 
-    # Linha Divisória
     p_div = doc.add_paragraph()
     p_div.paragraph_format.space_after = Pt(10)
     p_div.paragraph_format.space_before = Pt(6)
@@ -674,7 +649,6 @@ def gerar_ordem_servico_docx(fields):
     r_div.bold = True
     r_div.font.size = Pt(9)
 
-    # Título da Operação
     p_titulo = doc.add_paragraph()
     p_titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p_titulo.paragraph_format.space_before = Pt(6)
@@ -685,7 +659,6 @@ def gerar_ordem_servico_docx(fields):
     r_tit.font.size = Pt(12)
     r_tit.font.color.rgb = RGBColor(0, 32, 96)
 
-    # Seções Estruturadas na Sequência Exata Solicitada pelo Usuário
     secoes = [
         ("1. FINALIDADE", fields.get('finalidade', '')),
         ("2. INFORMAÇÕES GERAIS", fields.get('informacoes_gerais', '')),
@@ -708,7 +681,6 @@ def gerar_ordem_servico_docx(fields):
 
         renderizar_conteudo_docx(doc, conteudo)
 
-    # Assinatura do Comandante do 18º BPM
     p_ass = doc.add_paragraph()
     p_ass.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p_ass.paragraph_format.space_before = Pt(28)
@@ -751,7 +723,6 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body, style_tab
             i += 1
             continue
             
-        # Tabela no PDF
         if '|' in linha:
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
@@ -942,17 +913,14 @@ if arquivo_oo:
                 'cargo_comandante': cargo_comandante
             }
             
-            # 1. Gera DOCX em memória
             docx_bytes = gerar_ordem_servico_docx(fields_final)
             st.session_state['generated_docx'] = docx_bytes
             
-            # 2. Gera PDF nativo em memória usando ReportLab
             pdf_bytes = gerar_ordem_servico_pdf(fields_final)
             st.session_state['generated_pdf'] = pdf_bytes
             
             st.session_state['filename_base'] = f"OS_{num_os.replace('/', '_')}_{nome_operacao.replace(' ', '_')}"
 
-        # Exibe os botões de download
         if 'generated_docx' in st.session_state:
             st.markdown("---")
             st.subheader("📥 Baixar Arquivo Gerado")
