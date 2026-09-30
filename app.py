@@ -96,7 +96,7 @@ def gerar_css_app(caminho_img):
 
 st.markdown(gerar_css_app(caminho_brasao), unsafe_allow_html=True)
 
-# 🏷️️ ASSINATURA
+# 🏷 ASSINATURA
 st.markdown("""
 <div style="position: fixed; bottom: 15px; right: 140px; text-align: right; color: #9CA3AF; font-size: 12px; font-family: sans-serif; z-index: 999999; line-height: 1.4; background-color: rgba(14, 17, 23, 0.9); padding: 6px 12px; border-radius: 6px; border: 1px solid #2E364A;">
     Desenvolvido por:<br>
@@ -537,10 +537,14 @@ def eh_titulo_subsecao(linha):
 # GERADOR DO DOCUMENTO WORD (.DOCX)
 # =========================================================
 
-def renderizar_conteudo_docx(doc, conteudo):
+def renderizar_conteudo_docx(doc, conteudo, forcar_texto=False):
     conteudo_formatado = formatar_quebras_de_secao(conteudo)
     if not conteudo_formatado or not conteudo_formatado.strip():
         return
+
+    # Se forcar_texto for True (ex: Prescrições Diversas), removemos qualquer '|' transformando em espaço
+    if forcar_texto:
+        conteudo_formatado = conteudo_formatado.replace('|', ' ')
 
     linhas = conteudo_formatado.strip().split('\n')
     i = 0
@@ -550,8 +554,8 @@ def renderizar_conteudo_docx(doc, conteudo):
             i += 1
             continue
             
-        # Apenas constrói tabela se houver 2 ou mais colunas de dados com '|'
-        if '|' in linha:
+        # Apenas constrói tabela se NAO forcar_texto E houver 2 ou mais colunas com '|'
+        if not forcar_texto and '|' in linha:
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
                 cels = [c.strip() for c in linhas[i].split('|')]
@@ -723,7 +727,9 @@ def gerar_ordem_servico_docx(fields):
         r_sec.font.name = "Arial"
         r_sec.font.size = Pt(11)
 
-        renderizar_conteudo_docx(doc, conteudo)
+        # REGRA ESTRITA: Se for PRESCRIÇÕES DIVERSAS, força texto puro sem tabela!
+        eh_prescricoes = "PRESCRIÇÕES" in tit.upper()
+        renderizar_conteudo_docx(doc, conteudo, forcar_texto=eh_prescricoes)
 
     # Assinatura limpa do Comandante sem menção eletrônica
     p_ass = doc.add_paragraph()
@@ -750,10 +756,14 @@ def gerar_ordem_servico_docx(fields):
 # GERADOR NATIVO DE PDF (USANDO REPORTLAB)
 # =========================================================
 
-def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body, style_table_hdr):
+def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body, style_table_hdr, forcar_texto=False):
     conteudo_formatado = formatar_quebras_de_secao(conteudo)
     if not conteudo_formatado or not conteudo_formatado.strip():
         return
+
+    # Se forcar_texto for True (ex: Prescrições Diversas), removemos qualquer '|' transformando em espaço
+    if forcar_texto:
+        conteudo_formatado = conteudo_formatado.replace('|', ' ')
 
     linhas = conteudo_formatado.strip().split('\n')
     i = 0
@@ -763,7 +773,7 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body, style_tab
             i += 1
             continue
             
-        if '|' in linha:
+        if not forcar_texto and '|' in linha:
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
                 cels = [c.strip() for c in linhas[i].split('|')]
@@ -884,7 +894,8 @@ def gerar_ordem_servico_pdf(fields):
     
     for tit, conteudo in secoes:
         story.append(Paragraph(tit, style_sec_title))
-        renderizar_conteudo_pdf(story, conteudo, style_subnum_title, style_body, style_table_hdr)
+        eh_prescricoes = "PRESCRIÇÕES" in tit.upper()
+        renderizar_conteudo_pdf(story, conteudo, style_subnum_title, style_body, style_table_hdr, forcar_texto=eh_prescricoes)
     
     story.append(Spacer(1, 20))
     story.append(Paragraph(f"<b>{fields.get('nome_comandante', 'Ten.-Cel. QOEM PM Helder de Lima Dantas Junior')}</b>,", style_ass))
