@@ -347,7 +347,7 @@ def limpar_cabecalho_redundante(conteudo):
         return ""
     linhas = conteudo.strip().split('\n')
     while linhas:
-        primeira = linhas.strip()
+        primeira = linhas[0].strip()
         if re.match(r'^\s*(\d+\.?\s*)?(FINALIDADE|SITUAÇÃO|MISSÃO|EXECUÇÃO|ADMINISTRAÇÃO|LOGÍSTICA|RELATÓRIOS|PRESCRIÇÕES\s+DIVERSAS|REFERÊNCIAS)\s*$', primeira, re.IGNORECASE):
             linhas.pop(0)
         else:
