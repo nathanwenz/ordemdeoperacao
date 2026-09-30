@@ -96,7 +96,7 @@ def gerar_css_app(caminho_img):
 
 st.markdown(gerar_css_app(caminho_brasao), unsafe_allow_html=True)
 
-# 🏷️ ASSINATURA MOVIDA PARA A ESQUERDA
+# 🏷️️ ASSINATURA
 st.markdown("""
 <div style="position: fixed; bottom: 15px; right: 140px; text-align: right; color: #9CA3AF; font-size: 12px; font-family: sans-serif; z-index: 999999; line-height: 1.4; background-color: rgba(14, 17, 23, 0.9); padding: 6px 12px; border-radius: 6px; border: 1px solid #2E364A;">
     Desenvolvido por:<br>
@@ -159,8 +159,7 @@ def limpar_assinaturas_e_ruidos(texto):
         return ""
     
     padroes_lixo = [
-        r'\\(?Assinado\s+eletronicamente\\)?.*',
-        r'Assinado\s+eletronicamente.*',
+        r'.*Assinado\s+eletronicamente.*',
         r'Documento\s+assinado\s+digitalmente.*',
         r'Inserido\s+ao\s+protocolo.*',
         r'conforme\s+MP\s+n[º°\.]?\s*2\.?200-2/2001.*',
