@@ -234,8 +234,25 @@ def formatar_quebras_de_secao(texto):
             novas_linhas.append(l)
     return '\n'.join(novas_linhas)
 
+def safe_crop_text(page, y0, y1):
+    """Realiza o recorte seguro de área no PDF prevenindo erros de coordenadas"""
+    if y1 <= y0 + 1:
+        return ""
+    y0 = max(0, min(y0, page.height - 1))
+    y1 = max(y0 + 1, min(y1, page.height))
+    if y1 <= y0:
+        return ""
+    try:
+        cropped = page.crop((0, y0, page.width, y1))
+        return cropped.extract_text() or ""
+    except Exception:
+        return ""
+
 def extrair_texto_arquivo(uploaded_file):
-    """Extrai texto e tabelas do arquivo mantendo todas as células e colunas alinhadas"""
+    """
+    Extrai texto e tabelas de PDF ou DOCX em ordem estrita de leitura
+    SEM duplicar o conteúdo das tabelas como texto puro.
+    """
     ext = uploaded_file.name.split(".")[-1].lower()
     text = ""
     
@@ -243,30 +260,77 @@ def extrair_texto_arquivo(uploaded_file):
         uploaded_file.seek(0)
         with pdfplumber.open(uploaded_file) as pdf:
             for page in pdf.pages:
-                t_text = page.extract_text() or ""
-                tables = page.extract_tables()
-                if tables:
-                    for table in tables:
-                        table_str = ""
-                        for row in table:
-                            if row and any(cell is not None and str(cell).strip() != "" for cell in row):
-                                clean_row = [str(c).replace('\n', ' ').strip() if c is not None else "" for c in row]
-                                table_str += " | ".join(clean_row) + "\n"
-                        if table_str:
-                            t_text += "\n" + table_str
-                text += t_text + "\n"
+                tables = page.find_tables()
+                if not tables:
+                    page_text = page.extract_text() or ""
+                    if page_text.strip():
+                        text += page_text + "\n\n"
+                else:
+                    table_bboxes = [t.bbox for t in tables]
+                    
+                    # Filtra e remove o texto que pertence a tabelas para evitar duplicação bruta
+                    def not_in_table(obj):
+                        obj_x0 = obj.get('x0', 0)
+                        obj_top = obj.get('top', 0)
+                        obj_x1 = obj.get('x1', 0)
+                        obj_bottom = obj.get('bottom', 0)
+                        for (tx0, ttop, tx1, tbottom) in table_bboxes:
+                            if not (obj_x1 <= tx0 or obj_x0 >= tx1 or obj_bottom <= ttop or obj_top >= tbottom):
+                                return False
+                        return True
+
+                    filtered_page = page.filter(not_in_table)
+                    tables_sorted = sorted(tables, key=lambda t: t.bbox[1])
+                    
+                    page_content = []
+                    last_top = 0
+                    page_height = page.height
+                    
+                    for t in tables_sorted:
+                        tx0, ttop, tx1, tbottom = t.bbox
+                        if ttop > last_top + 2:
+                            t_above = safe_crop_text(filtered_page, last_top, ttop)
+                            if t_above and t_above.strip():
+                                page_content.append(t_above.strip())
+                        
+                        extracted_tbl = t.extract()
+                        if extracted_tbl:
+                            table_lines = []
+                            for row in extracted_tbl:
+                                if row and any(c is not None and str(c).strip() != "" for c in row):
+                                    clean_row = [str(c).replace('\n', ' ').strip() if c is not None else "" for c in row]
+                                    table_lines.append(" | ".join(clean_row))
+                            if table_lines:
+                                page_content.append("\n".join(table_lines))
+                        
+                        last_top = max(last_top, tbottom)
+                    
+                    if last_top < page_height - 2:
+                        t_below = safe_crop_text(filtered_page, last_top, page_height)
+                        if t_below and t_below.strip():
+                            page_content.append(t_below.strip())
+                            
+                    text += "\n\n".join(page_content) + "\n\n"
         uploaded_file.seek(0)
     elif ext in ["docx", "doc"]:
         uploaded_file.seek(0)
         doc = docx.Document(uploaded_file)
-        for p in doc.paragraphs:
-            text += p.text + "\n"
-        for t in doc.tables:
-            for r in t.rows:
-                row_cells = [c.text.replace('\n', ' ').strip() for c in r.cells]
-                if any(cell for cell in row_cells):
-                    row_str = " | ".join(row_cells)
-                    text += row_str + "\n"
+        items = []
+        for element in doc.element.body:
+            if element.tag.endswith('p'):
+                p = docx.text.paragraph.Paragraph(element, doc)
+                if p.text.strip():
+                    items.append(p.text.strip())
+            elif element.tag.endswith('tbl'):
+                tbl = docx.table.Table(element, doc)
+                table_lines = []
+                for row in tbl.rows:
+                    row_cells = [c.text.replace('\n', ' ').strip() for c in r.cells]
+                    if any(cell for cell in row_cells):
+                        table_lines.append(" | ".join(row_cells))
+                if table_lines:
+                    items.append("\n".join(table_lines))
+        text = "\n\n".join(items)
         uploaded_file.seek(0)
         
     text_limpo = limpar_assinaturas_e_ruidos(text)
