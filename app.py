@@ -136,9 +136,9 @@ if "pagina_atual" not in st.session_state:
 # Tela de Login Única
 if not st.session_state.autenticado:
     if caminho_brasao:
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.image(caminho_brasao, width=150)
+            st.image(caminho_brasao, width=190)
 
     st.title("🔒 Acesso Restrito — 18º BPM")
     st.write("Digite a senha de acesso para utilizar o Portal de Sistemas Operacionais.")
@@ -1034,14 +1034,15 @@ def render_modulo_segundo_site():
 # TELA DE ENTRADA (PORTAL / HUB CENTRAL)
 # =========================================================
 def render_tela_entrada():
+    # BRASÃO CENTRALIZADO E EM TAMANHO DESTAQUE (220px)
     if caminho_brasao:
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
-            st.image(caminho_brasao, width=130)
+            st.image(caminho_brasao, width=220)
 
-    # NOVO CABEÇALHO DEDICADO E FORMATADO
+    # CABEÇALHO FORMATADO
     st.markdown("""
-    <div style='text-align: center; margin-bottom: 25px;'>
+    <div style='text-align: center; margin-bottom: 25px; margin-top: 10px;'>
         <h1 style='font-size: 26px; font-weight: bold; margin-bottom: 6px;'>🛡️ Portal Gerador de Relatórios 🛡️</h1>
         <h3 style='color: #60A5FA !important; font-size: 18px; font-weight: 600; margin-top: 0px; margin-bottom: 4px;'>SEÇÃO — PM/3</h3>
         <h4 style='color: #E0E6ED !important; font-size: 16px; font-weight: 500; margin-top: 0px; margin-bottom: 2px;'>18º BPM</h4>
@@ -1081,7 +1082,6 @@ def render_tela_entrada():
 # ROTEADOR DE NAVEGAÇÃO CENTRAL
 # =========================================================
 
-# Botão de retorno ao Portal na barra lateral (apenas quando dentro de um módulo)
 if st.session_state.pagina_atual != "portal":
     with st.sidebar:
         if caminho_brasao:
@@ -1092,7 +1092,6 @@ if st.session_state.pagina_atual != "portal":
             st.rerun()
         st.markdown("---")
 
-# Renderização condicional conforme a página selecionada
 if st.session_state.pagina_atual == "portal":
     render_tela_entrada()
 elif st.session_state.pagina_atual == "gerador_os":
