@@ -156,7 +156,7 @@ if not st.session_state.autenticado:
 
 
 # =========================================================
-# FUNÇÕES AUXILIARES — GERADOR DE ORDEM DE SERVIÇO
+# FUNÇÕES AUXILIARES — GERADOR DE ORDEM DE SERVIÇO / EXTRAJORNADA
 # =========================================================
 
 MESES = {
@@ -1019,15 +1019,38 @@ def render_modulo_gerador_os():
 # MÓDULO 2: SEGUNDO SITE / EXTRAJORNADA (SITE 2)
 # =========================================================
 def render_modulo_segundo_site():
-    st.title("🗓️ Programação Extrajornada e Escalas")
+    st.title("🗓️️ Programação Extrajornada e Escalas")
     st.caption("18º Batalhão de Polícia Militar — PMPR")
     st.write("Módulo de gestão, montagem e validação da Programação Extrajornada Voluntária.")
     
-    st.info("Módulo de Programação Extrajornada em operação. Insira seus dados ou arquivos de escala abaixo.")
+    st.info("Envie o arquivo da escala em **PDF, DOCX, XLSX ou CSV** para visualização e processamento.")
     
-    arquivo_escala = st.file_uploader("Envie a planilha/documento de escala de Extrajornada", type=["docx", "xlsx", "csv"])
+    arquivo_escala = st.file_uploader(
+        "Envie a escala de Extrajornada (PDF, DOCX, XLSX, CSV)", 
+        type=["pdf", "docx", "doc", "xlsx", "csv"]
+    )
+    
     if arquivo_escala:
-        st.success(f"Arquivo '{arquivo_escala.name}' carregado com sucesso no Módulo Extrajornada!")
+        st.success(f"Arquivo '{arquivo_escala.name}' carregado com sucesso!")
+        
+        ext = arquivo_escala.name.split(".")[-1].lower()
+        if ext in ["pdf", "docx", "doc"]:
+            texto_escala = extrair_texto_arquivo(arquivo_escala)
+            if texto_escala.strip():
+                st.subheader("📋 Conteúdo / Escala Extraída")
+                st.text_area("Dados extraídos da Escala Extrajornada:", value=texto_escala, height=350)
+            else:
+                st.warning("Não foi possível extrair texto do arquivo enviado. Verifique se o documento contém texto selecionável.")
+        elif ext in ["xlsx", "csv"]:
+            try:
+                if ext == "xlsx":
+                    df = pd.read_excel(arquivo_escala)
+                else:
+                    df = pd.read_csv(arquivo_escala)
+                st.subheader("📊 Visualização da Planilha de Escala")
+                st.dataframe(df, use_container_width=True)
+            except Exception as e:
+                st.error(f"Erro ao ler a planilha: {e}")
 
 
 # =========================================================
@@ -1036,7 +1059,7 @@ def render_modulo_segundo_site():
 def render_tela_entrada():
     # BRASÃO CENTRALIZADO E EM TAMANHO DESTAQUE (220px)
     if caminho_brasao:
-        c1, c2, c3 = st.columns([1, 2, 1])
+        c1, c2, c3 = st.columns(3)
         with c2:
             st.image(caminho_brasao, width=220)
 
