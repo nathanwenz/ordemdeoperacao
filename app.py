@@ -335,7 +335,7 @@ def extrair_secao_flexivel(texto, padrao_inicio, padraos_fim):
     Extrai o conteúdo de uma seção consumindo a linha inteira do título de início,
     buscando flexivelmente até a ocorrência de qualquer um dos padrões em padraos_fim.
     """
-    regex_inicio = rf'^[ \t]*\d*\.?\s*{padrao_inicio}[^\n]*\n'
+    regex_inicio = rf'^[ \t]*[\d\.]*\s*{padrao_inicio}[^\n]*\n'
     match_inicio = re.search(regex_inicio, texto, re.IGNORECASE | re.MULTILINE)
     
     if not match_inicio:
@@ -351,7 +351,7 @@ def extrair_secao_flexivel(texto, padrao_inicio, padraos_fim):
         
     conteudo_restante = texto[pos_conteudo:]
     
-    regex_fim = rf'^[ \t]*\d*\.?\s*(?:{"|".join(padraos_fim)})[^\n]*'
+    regex_fim = rf'^[ \t]*[\d\.]*\s*(?:{"|".join(padraos_fim)})[^\n]*'
     match_fim = re.search(regex_fim, conteudo_restante, re.IGNORECASE | re.MULTILINE)
     
     if match_fim:
@@ -372,7 +372,7 @@ def normalizar_subnumeracao_secao(conteudo, sec_num):
     linhas_limpas = []
 
     padrao_titulo_principal = re.compile(
-        r'^\s*(\d*\.?\s*)?(E\s+LOGÍSTICA|FINALIDADE|INFORMAÇÕES\s+GERAIS|SITUAÇÃO|MISSÃO|EXECUÇÃO|ADMINISTRAÇÃO|LOGÍSTICA|RELATÓRIOS|PRESCRIÇÕES\s+DIVERSAS|REFERÊNCIAS)\b.*$',
+        r'^\s*(\d*[\.\)]?\s*)?(E\s+LOGÍSTICA|FINALIDADE|INFORMAÇÕES\s+GERAIS|SITUAÇÃO|MISSÃO|EXECUÇÃO|ADMINISTRAÇÃO|LOGÍSTICA|RELATÓRIOS|PRESCRIÇÕES\s+DIVERSAS|REFERÊNCIAS)\b.*$',
         re.IGNORECASE
     )
 
@@ -440,15 +440,21 @@ def parsear_ordem_operacao(texto):
     # 2. INFORMAÇÕES GERAIS (Garante o sub-item '2.1. SITUAÇÃO')
     ig_raw = extrair_secao_flexivel(texto, r'SITUAÇÃO|INFORMAÇÕES\s+GERAIS', [r'MISSÃO', r'EXECUÇÃO'])
     
-    # Limpa marcadores redundantes de início
-    ig = re.sub(r'^\s*\d*\.?\s*(SITUAÇÃO|INFORMAÇÕES\s+GERAIS)\s*$', '', ig_raw, flags=re.IGNORECASE | re.MULTILINE)
-    ig = re.sub(r'^\s*\d+\.\d+\.?\s*(INFORMAÇÕES\s+GERAIS|SITUAÇÃO)', '2.1. SITUAÇÃO', ig, flags=re.IGNORECASE | re.MULTILINE)
-    
-    if '2.1. SITUAÇÃO' not in ig and '2.1 SITUAÇÃO' not in ig:
-        ig = "2.1. SITUAÇÃO\n" + ig.strip()
-
-    ig = normalizar_subnumeracao_secao(ig, 2)
-    dados['informacoes_gerais'] = ig
+    lines_ig = []
+    for line in ig_raw.split('\n'):
+        l_str = line.strip()
+        if not l_str:
+            continue
+        if re.match(r'^\s*(\d*[\.\)]?\s*)?(SITUAÇÃO|INFORMAÇÕES\s+GERAIS)\s*$', l_str, re.IGNORECASE):
+            continue
+        if re.match(r'^\s*\d+\.\d+\.?\s*(INFORMAÇÕES\s+GERAIS|SITUAÇÃO)\s*$', l_str, re.IGNORECASE):
+            continue
+        lines_ig.append(l_str)
+        
+    ig_body = "\n".join(lines_ig).strip()
+    ig_final = "2.1. SITUAÇÃO\n" + ig_body
+    ig_final = normalizar_subnumeracao_secao(ig_final, 2)
+    dados['informacoes_gerais'] = ig_final
 
     # 3. MISSÃO (Garantida na 3ª posição)
     m = extrair_secao_flexivel(texto, r'MISSÃO', [r'EXECUÇÃO', r'ADMINISTRAÇÃO', r'LOGÍSTICA'])
