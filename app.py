@@ -458,7 +458,7 @@ def renderizar_conteudo_docx(doc, conteudo):
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
                 cels = [c.strip() for c in linhas[i].split('|')]
-                if len(cels) > 1 and cels == "":
+                if len(cels) > 1 and cels[0] == "":
                     cels = cels[1:]
                 if len(cels) > 1 and cels[-1] == "":
                     cels = cels[:-1]
@@ -481,7 +481,7 @@ def renderizar_conteudo_docx(doc, conteudo):
                     for c_idx, cell_value in enumerate(row_data):
                         if c_idx < len(row_cells):
                             cell = row_cells[c_idx]
-                            p = cell.paragraphs
+                            p = cell.paragraphs[0]
                             p.paragraph_format.space_before = Pt(3)
                             p.paragraph_format.space_after = Pt(3)
                             p.paragraph_format.line_spacing = 1.15
@@ -552,12 +552,12 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    row0 = table_hdr.rows
-    row0.cells.width = Inches(3.5)
-    row0.cells.width = Inches(3.0)
+    row0 = table_hdr.rows[0]
+    row0.cells[0].width = Inches(3.5)
+    row0.cells[1].width = Inches(3.0)
 
     # Célula Esquerda (Unidade)
-    p_left = row0.cells.paragraphs
+    p_left = row0.cells[0].paragraphs[0]
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -566,7 +566,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.size = Pt(10)
 
     # Célula Direita (Local, Data, OS)
-    p_right = row0.cells.paragraphs
+    p_right = row0.cells[1].paragraphs[0]
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.2
@@ -666,7 +666,7 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body, style_tab
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
                 cels = [c.strip() for c in linhas[i].split('|')]
-                if len(cels) > 1 and cels == "":
+                if len(cels) > 1 and cels[0] == "":
                     cels = cels[1:]
                 if len(cels) > 1 and cels[-1] == "":
                     cels = cels[:-1]
