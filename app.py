@@ -330,25 +330,6 @@ def extrair_texto_arquivo(uploaded_file):
     text_limpo = limpar_assinaturas_e_ruidos(text)
     return text_limpo
 
-def limpar_secao_conteudo(conteudo):
-    """
-    Remove linhas no início do bloco que repitam o título principal da seção.
-    """
-    if not conteudo:
-        return ""
-    linhas = [l.strip() for l in conteudo.strip().split('\n') if l.strip()]
-    if not linhas:
-        return ""
-        
-    while linhas:
-        primeira = linhas[0]
-        if re.match(r'^\s*\d*\.?\s*(FINALIDADE|SITUAÇÃO|MISSÃO|EXECUÇÃO|ADMINISTRAÇÃO|LOGÍSTICA|RELATÓRIOS|PRESCRIÇÕES\s+DIVERSAS|REFERÊNCIAS)\b', primeira, re.IGNORECASE):
-            linhas.pop(0)
-        else:
-            break
-            
-    return '\n'.join(linhas).strip()
-
 def extrair_secao_flexivel(texto, padrao_inicio, padraos_fim):
     """
     Extrai o conteúdo de uma seção consumindo a linha inteira do título de início,
@@ -378,12 +359,12 @@ def extrair_secao_flexivel(texto, padrao_inicio, padraos_fim):
     else:
         conteudo_secao = conteudo_restante
         
-    return limpar_secao_conteudo(conteudo_secao)
+    return conteudo_secao.strip()
 
 def normalizar_subnumeracao_secao(conteudo, sec_num):
     """
     Normaliza rigorosamente a sub-numeração dentro de uma seção para que reflita o número correto da seção sec_num.
-    Remove repetições de cabeçalhos de seção e re-sequencia números duplicados ou desalinhados (ex: 3.1 na seção 4 vira 4.1).
+    Remove repetições de cabeçalhos de seção, números isolados e re-sequencia sub-itens desalinhados.
     """
     if not conteudo:
         return ""
@@ -391,7 +372,12 @@ def normalizar_subnumeracao_secao(conteudo, sec_num):
     linhas = conteudo.strip().split('\n')
     linhas_limpas = []
 
-    padrao_titulo_principal = re.compile(rf'^\s*(\d*\.?\s*)?(E\s+LOGÍSTICA|FINALIDADE|SITUAÇÃO|MISSÃO|EXECUÇÃO|ADMINISTRAÇÃO|LOGÍSTICA|RELATÓRIOS|PRESCRIÇÕES\s+DIVERSAS|REFERÊNCIAS)\b.*$', re.IGNORECASE)
+    padrao_titulo_principal = re.compile(
+        r'^\s*(\d*\.?\s*)?(E\s+LOGÍSTICA|FINALIDADE|SITUAÇÃO|MISSÃO|EXECUÇÃO|ADMINISTRAÇÃO|LOGÍSTICA|RELATÓRIOS|PRESCRIÇÕES\s+DIVERSAS|REFERÊNCIAS)\b.*$',
+        re.IGNORECASE
+    )
+
+    padrao_numero_isolado = re.compile(r'^\s*\d+\s*[\.\)]?\s*$')
 
     sub_counter = 1
     seen_subnums = set()
@@ -402,6 +388,9 @@ def normalizar_subnumeracao_secao(conteudo, sec_num):
             continue
 
         if padrao_titulo_principal.match(l_str) and len(l_str) < 70 and not '|' in l_str:
+            continue
+
+        if padrao_numero_isolado.match(l_str):
             continue
 
         match_sub = re.match(r'^(\d+)\.(\d+)(\.\d+)?\s*(.*)', l_str)
@@ -425,7 +414,7 @@ def normalizar_subnumeracao_secao(conteudo, sec_num):
         else:
             linhas_limpas.append(l_str)
 
-    return "\n".join(linhas_limpas)
+    return "\n".join(linhas_limpas).strip()
 
 def parsear_ordem_operacao(texto):
     """Analisa a Ordem de Operação e extrai os campos em ordem numérica estrita (1 a 7) sem pular nada"""
@@ -542,7 +531,7 @@ def renderizar_conteudo_docx(doc, conteudo):
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
                 cels = [c.strip() for c in linhas[i].split('|')]
-                if len(cels) > 1 and cels[0] == "":
+                if len(cels) > 1 and cels == "":
                     cels = cels[1:]
                 if len(cels) > 1 and cels[-1] == "":
                     cels = cels[:-1]
@@ -565,7 +554,7 @@ def renderizar_conteudo_docx(doc, conteudo):
                     for c_idx, cell_value in enumerate(row_data):
                         if c_idx < len(row_cells):
                             cell = row_cells[c_idx]
-                            p = cell.paragraphs[0]
+                            p = cell.paragraphs
                             p.paragraph_format.space_before = Pt(3)
                             p.paragraph_format.space_after = Pt(3)
                             p.paragraph_format.line_spacing = 1.15
@@ -636,12 +625,12 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    row0 = table_hdr.rows[0]
-    row0.cells[0].width = Inches(3.5)
-    row0.cells[1].width = Inches(3.0)
+    row0 = table_hdr.rows
+    row0.cells.width = Inches(3.5)
+    row0.cells.width = Inches(3.0)
 
     # Célula Esquerda (Unidade)
-    p_left = row0.cells[0].paragraphs[0]
+    p_left = row0.cells.paragraphs
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -650,7 +639,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.size = Pt(10)
 
     # Célula Direita (Local, Data, OS)
-    p_right = row0.cells[1].paragraphs[0]
+    p_right = row0.cells.paragraphs
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.2
@@ -749,7 +738,7 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body, style_tab
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
                 cels = [c.strip() for c in linhas[i].split('|')]
-                if len(cels) > 1 and cels[0] == "":
+                if len(cels) > 1 and cels == "":
                     cels = cels[1:]
                 if len(cels) > 1 and cels[-1] == "":
                     cels = cels[:-1]
