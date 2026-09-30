@@ -361,54 +361,6 @@ def extrair_secao_flexivel(texto, padrao_inicio, padraos_fim):
         
     return conteudo_secao.strip()
 
-def organizar_e_limpar_situacao(conteudo):
-    """
-    Garante que o texto geral descritivo fique no início da seção Situação,
-    vindo ANTES de qualquer sub-item como '2.1 INFORMAÇÕES GERAIS',
-    e elimina completamente quaisquer títulos duplicados como '2. SITUAÇÃO' ao final.
-    """
-    if not conteudo:
-        return ""
-
-    # Remove qualquer título residual de '2. SITUAÇÃO' ou '2. INFORMAÇÕES GERAIS' isolado
-    conteudo = re.sub(r'^\s*\d*\.?\s*(SITUAÇÃO|INFORMAÇÕES\s+GERAIS)\s*$', '', conteudo, flags=re.IGNORECASE | re.MULTILINE)
-
-    linhas = [l.strip() for l in conteudo.strip().split('\n') if l.strip()]
-    if not linhas:
-        return ""
-
-    idx_sub = -1
-    idx_geral = -1
-
-    for idx, l in enumerate(linhas):
-        if re.match(r'^\d+\.\d+\s+INFORMAÇÕES\s+GERAIS', l, re.IGNORECASE) or re.match(r'^\d+\.\d+\s+SITUAÇÃO', l, re.IGNORECASE):
-            if idx_sub == -1:
-                idx_sub = idx
-        elif l.startswith('A Polícia Militar do Paraná') or 'atuação contínua e ostensiva' in l:
-            idx_geral = idx
-
-    # Se o texto descritivo geral ficou posicionado DEPOIS do sub-item 2.1, inverte a ordem
-    if idx_sub != -1 and idx_geral != -1 and idx_geral > idx_sub:
-        bloco_geral = []
-        bloco_sub = []
-
-        i = 0
-        while i < len(linhas):
-            if i == idx_sub:
-                while i < len(linhas) and not (linhas[i].startswith('A Polícia Militar do Paraná') or 'atuação contínua e ostensiva' in linhas[i]):
-                    bloco_sub.append(linhas[i])
-                    i += 1
-            elif i == idx_geral or (i > idx_sub and (linhas[i].startswith('A Polícia Militar do Paraná') or 'atuação contínua e ostensiva' in linhas[i])):
-                bloco_geral.append(linhas[i])
-                i += 1
-            else:
-                bloco_geral.append(linhas[i])
-                i += 1
-
-        linhas = bloco_geral + bloco_sub
-
-    return "\n".join(linhas).strip()
-
 def normalizar_subnumeracao_secao(conteudo, sec_num):
     """
     Normaliza rigorosamente a sub-numeração dentro de uma seção para que reflita o número correto da seção sec_num.
@@ -421,7 +373,7 @@ def normalizar_subnumeracao_secao(conteudo, sec_num):
     linhas_limpas = []
 
     padrao_titulo_principal = re.compile(
-        r'^\s*(\d*\.?\s*)?(E\s+LOGÍSTICA|FINALIDADE|SITUAÇÃO|INFORMAÇÕES\s+GERAIS|MISSÃO|EXECUÇÃO|ADMINISTRAÇÃO|LOGÍSTICA|RELATÓRIOS|PRESCRIÇÕES\s+DIVERSAS|REFERÊNCIAS)\b.*$',
+        r'^\s*(\d*\.?\s*)?(E\s+LOGÍSTICA|FINALIDADE|INFORMAÇÕES\s+GERAIS|SITUAÇÃO|MISSÃO|EXECUÇÃO|ADMINISTRAÇÃO|LOGÍSTICA|RELATÓRIOS|PRESCRIÇÕES\s+DIVERSAS|REFERÊNCIAS)\b.*$',
         re.IGNORECASE
     )
 
@@ -465,14 +417,14 @@ def normalizar_subnumeracao_secao(conteudo, sec_num):
     return "\n".join(linhas_limpas).strip()
 
 def parsear_ordem_operacao(texto):
-    """Analisa a Ordem de Operação e extrai os campos em ordem numérica estrita (1 a 7) sem pular nada"""
+    """Analisa a Ordem de Operação e extrai os 8 campos na sequência exata solicitada"""
     dados = {}
     
-    # 1. Número da OO
+    # Número da OO
     match_num = re.search(r'ORDEM DE OPERAÇÃO\s*(?:Nº|N°|Nº\.|N°\.|N°\s*|Nº\s*)?(\d+/\d+)', texto, re.IGNORECASE)
     dados['num_oo'] = match_num.group(1) if match_num else "000/2026"
 
-    # 2. Nome da Operação
+    # Nome da Operação
     match_nome = re.search(r'“([^”]+)”|"([^"]+)"', texto)
     if match_nome:
         dados['nome_op'] = match_nome.group(1) or match_nome.group(2)
@@ -482,36 +434,69 @@ def parsear_ordem_operacao(texto):
 
     dados['nome_op'] = dados['nome_op'].replace('\n', ' ').strip().upper()
 
-    # Seção 1: FINALIDADE
-    f = extrair_secao_flexivel(texto, r'FINALIDADE', [r'SITUAÇÃO', r'MISSÃO', r'EXECUÇÃO'])
+    # 1. FINALIDADE
+    f = extrair_secao_flexivel(texto, r'FINALIDADE', [r'INFORMAÇÕES\s+GERAIS', r'SITUAÇÃO', r'MISSÃO', r'EXECUÇÃO'])
     f = normalizar_subnumeracao_secao(f, 1)
     dados['finalidade'] = f if f else "Realizar ações de policiamento ostensivo preventivo e preservação da ordem pública."
 
-    # Seção 2: SITUAÇÃO
-    s = extrair_secao_flexivel(texto, r'SITUAÇÃO', [r'MISSÃO', r'EXECUÇÃO'])
-    s = organizar_e_limpar_situacao(s)
-    s = normalizar_subnumeracao_secao(s, 2)
-    dados['situacao'] = s if s else "Ações de policiamento ostensivo e preventivo para a manutenção da ordem pública."
+    # Extração conjunta do bloco entre Finalidade e Missão para separar Informações Gerais e Situação
+    bloco_sit_completo = extrair_secao_flexivel(texto, r'SITUAÇÃO|INFORMAÇÕES\s+GERAIS', [r'MISSÃO', r'EXECUÇÃO'])
 
-    # Seção 3: MISSÃO (Garantida - nunca pulada!)
+    linhas_bloco = [l.strip() for l in bloco_sit_completo.split('\n') if l.strip()]
+    linhas_ig = []
+    linhas_sit = []
+
+    for l in linhas_bloco:
+        if re.match(r'^\s*(\d*\.?\s*)?(SITUAÇÃO|INFORMAÇÕES\s+GERAIS)\s*$', l, re.IGNORECASE):
+            continue
+        if re.match(r'^\s*2\.1\s*INFORMAÇÕES\s+GERAIS\s*$', l, re.IGNORECASE):
+            continue
+
+        if re.match(r'^[a-z0-9][\.\)\-]\s+', l, re.IGNORECASE) or 'abrangência' in l.lower() or 'execução regionalizada' in l.lower():
+            linhas_ig.append(l)
+        elif l.startswith('A Polícia Militar do Paraná') or 'atuação contínua' in l.lower() or 'mandados de prisão' in l.lower():
+            linhas_sit.append(l)
+        else:
+            if linhas_ig and not linhas_sit:
+                linhas_ig.append(l)
+            else:
+                linhas_sit.append(l)
+
+    # 2. INFORMAÇÕES GERAIS
+    ig_str = "\n".join(linhas_ig).strip()
+    if not ig_str:
+        ig_str = f"A Operação “{dados['nome_op']}” possui abrangência na área do 18º BPM, concentrando esforços na preservação da ordem pública, cumprimento de mandados e fiscalização."
+    else:
+        ig_str = normalizar_subnumeracao_secao(ig_str, 2)
+    dados['informacoes_gerais'] = ig_str
+
+    # 3. SITUAÇÃO
+    sit_str = "\n".join(linhas_sit).strip()
+    if not sit_str:
+        sit_str = "A Polícia Militar do Paraná, em sua atuação contínua e ostensiva, desenvolve operações voltadas à manutenção da ordem pública e segurança da comunidade."
+    else:
+        sit_str = normalizar_subnumeracao_secao(sit_str, 3)
+    dados['situacao'] = sit_str
+
+    # 4. MISSÃO (Garantida)
     m = extrair_secao_flexivel(texto, r'MISSÃO', [r'EXECUÇÃO', r'ADMINISTRAÇÃO', r'LOGÍSTICA'])
     if not m or len(m) < 10:
         m = f"O 18º BPM executará o policiamento ostensivo e a preservação da ordem pública na sua circunscrição territorial no âmbito da “{dados['nome_op']}”, visando a prevenção de crimes e a garantia da segurança pública."
     else:
-        m = normalizar_subnumeracao_secao(m, 3)
+        m = normalizar_subnumeracao_secao(m, 4)
     dados['missao'] = m
 
-    # Seção 4: EXECUÇÃO
+    # 5. EXECUÇÃO
     e = extrair_secao_flexivel(texto, r'EXECUÇÃO', [r'ADMINISTRAÇÃO', r'LOGÍSTICA', r'RELATÓRIOS'])
-    e = normalizar_subnumeracao_secao(e, 4)
+    e = normalizar_subnumeracao_secao(e, 5)
     dados['execucao'] = e if e else "Atuação integrada das equipes operacionais do 18º BPM em conformidade com o planejamento."
 
-    # Seção 5: ADMINISTRAÇÃO E LOGÍSTICA
+    # 6. ADMINISTRAÇÃO E LOGÍSTICA
     l = extrair_secao_flexivel(texto, r'ADMINISTRAÇÃO|LOGÍSTICA', [r'RELATÓRIOS', r'PRESCRIÇÕES'])
-    l = normalizar_subnumeracao_secao(l, 5)
+    l = normalizar_subnumeracao_secao(l, 6)
     dados['logistica'] = l if l else "Uniforme: Orgânico da OPM (4º RUPM).\nArmamento e equipamento: Orgânico compatível com o serviço.\nTransporte: Viaturas operacionais do 18º BPM."
 
-    # Seção 6: RELATÓRIOS E SISGCOP
+    # 7. RELATÓRIOS E SISGCOP
     r = extrair_secao_flexivel(texto, r'RELATÓRIOS', [r'PRESCRIÇÕES', r'REFERÊNCIAS'])
     match_sisgcop = re.search(r'(\d{5,6})\s*[\-–]?\s*[\"“]?OPERAÇÃO', texto, re.IGNORECASE)
     if not match_sisgcop:
@@ -519,15 +504,15 @@ def parsear_ordem_operacao(texto):
     num_sisgcop = match_sisgcop.group(1) if match_sisgcop else ""
     
     if r:
-        r = normalizar_subnumeracao_secao(r, 6)
+        r = normalizar_subnumeracao_secao(r, 7)
         dados['relatorios'] = r
     else:
         dados['relatorios'] = f"Os resultados obtidos deverão ser lançados no SISGCOP{' sob o código ' + num_sisgcop if num_sisgcop else ''} até o término da operação. Confecção dos Boletins de Ocorrência (BOU) no SADE."
 
-    # Seção 7: PRESCRIÇÕES DIVERSAS
+    # 8. PRESCRIÇÕES DIVERSAS
     p = extrair_secao_flexivel(texto, r'PRESCRIÇÕES\s+DIVERSAS|PRESCRIÇÕES', [r'REFERÊNCIAS', r'DISTRIBUIÇÃO'])
     if p:
-        p = normalizar_subnumeracao_secao(p, 7)
+        p = normalizar_subnumeracao_secao(p, 8)
         dados['prescricoes'] = p
     else:
         dados['prescricoes'] = "Os policiais militares deverão atuar com bom senso, urbanidade, legalidade e estrito cumprimento do dever legal. Preleção obrigatória antes do início do serviço."
@@ -722,15 +707,16 @@ def gerar_ordem_servico_docx(fields):
     r_tit.font.size = Pt(12)
     r_tit.font.color.rgb = RGBColor(0, 32, 96)
 
-    # Seções Estruturadas em Sequência Numérica Estrita PMPR (Garantido de 1 a 7)
+    # Seções Estruturadas na Sequência Exata Solicitada (1 a 8 + Referências)
     secoes = [
         ("1. FINALIDADE", fields.get('finalidade', '')),
-        ("2. SITUAÇÃO", fields.get('situacao', '')),
-        ("3. MISSÃO", fields.get('missao', '')),
-        ("4. EXECUÇÃO", fields.get('execucao', '')),
-        ("5. ADMINISTRAÇÃO E LOGÍSTICA", fields.get('logistica', '')),
-        ("6. RELATÓRIOS E SISGCOP", fields.get('relatorios', '')),
-        ("7. PRESCRIÇÕES DIVERSAS", fields.get('prescricoes', '')),
+        ("2. INFORMAÇÕES GERAIS", fields.get('informacoes_gerais', '')),
+        ("3. SITUAÇÃO", fields.get('situacao', '')),
+        ("4. MISSÃO", fields.get('missao', '')),
+        ("5. EXECUÇÃO", fields.get('execucao', '')),
+        ("6. ADMINISTRAÇÃO E LOGÍSTICA", fields.get('logistica', '')),
+        ("7. RELATÓRIOS E SISGCOP", fields.get('relatorios', '')),
+        ("8. PRESCRIÇÕES DIVERSAS", fields.get('prescricoes', '')),
         ("REFERÊNCIAS", fields.get('referencias', ''))
     ]
 
@@ -864,85 +850,14 @@ def gerar_ordem_servico_pdf(fields):
     
     styles = getSampleStyleSheet()
     
-    style_hdr_left = ParagraphStyle(
-        'HdrLeft',
-        parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=10,
-        leading=13,
-        textColor=colors.black
-    )
-    
-    style_hdr_right = ParagraphStyle(
-        'HdrRight',
-        parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=10,
-        leading=13,
-        alignment=2,
-        textColor=colors.black
-    )
-    
-    style_title = ParagraphStyle(
-        'OpTitle',
-        parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=12,
-        leading=16,
-        alignment=1,
-        textColor=colors.HexColor('#002060')
-    )
-    
-    style_sec_title = ParagraphStyle(
-        'SecTitle',
-        parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=11,
-        leading=15,
-        textColor=colors.black,
-        spaceBefore=14,
-        spaceAfter=4
-    )
-    
-    style_subnum_title = ParagraphStyle(
-        'SubNumTitle',
-        parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=10.5,
-        leading=14,
-        textColor=colors.black,
-        spaceBefore=10,
-        spaceAfter=4
-    )
-    
-    style_body = ParagraphStyle(
-        'BodyTextCustom',
-        parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=10,
-        leading=14,
-        textColor=colors.black,
-        spaceAfter=5
-    )
-    
-    style_table_hdr = ParagraphStyle(
-        'TableHdrCustom',
-        parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=9.5,
-        leading=13,
-        textColor=colors.white
-    )
-
-    style_ass = ParagraphStyle(
-        'Assinatura',
-        parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=10,
-        leading=14,
-        alignment=1,
-        textColor=colors.black
-    )
+    style_hdr_left = ParagraphStyle('HdrLeft', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=13, textColor=colors.black)
+    style_hdr_right = ParagraphStyle('HdrRight', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=13, alignment=2, textColor=colors.black)
+    style_title = ParagraphStyle('OpTitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=12, leading=16, alignment=1, textColor=colors.HexColor('#002060'))
+    style_sec_title = ParagraphStyle('SecTitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, leading=15, textColor=colors.black, spaceBefore=14, spaceAfter=4)
+    style_subnum_title = ParagraphStyle('SubNumTitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10.5, leading=14, textColor=colors.black, spaceBefore=10, spaceAfter=4)
+    style_body = ParagraphStyle('BodyTextCustom', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=14, textColor=colors.black, spaceAfter=5)
+    style_table_hdr = ParagraphStyle('TableHdrCustom', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9.5, leading=13, textColor=colors.white)
+    style_ass = ParagraphStyle('Assinatura', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=14, alignment=1, textColor=colors.black)
 
     story = []
     
@@ -968,12 +883,13 @@ def gerar_ordem_servico_pdf(fields):
     
     secoes = [
         ("1. FINALIDADE", fields.get('finalidade', '')),
-        ("2. SITUAÇÃO", fields.get('situacao', '')),
-        ("3. MISSÃO", fields.get('missao', '')),
-        ("4. EXECUÇÃO", fields.get('execucao', '')),
-        ("5. ADMINISTRAÇÃO E LOGÍSTICA", fields.get('logistica', '')),
-        ("6. RELATÓRIOS E SISGCOP", fields.get('relatorios', '')),
-        ("7. PRESCRIÇÕES DIVERSAS", fields.get('prescricoes', '')),
+        ("2. INFORMAÇÕES GERAIS", fields.get('informacoes_gerais', '')),
+        ("3. SITUAÇÃO", fields.get('situacao', '')),
+        ("4. MISSÃO", fields.get('missao', '')),
+        ("5. EXECUÇÃO", fields.get('execucao', '')),
+        ("6. ADMINISTRAÇÃO E LOGÍSTICA", fields.get('logistica', '')),
+        ("7. RELATÓRIOS E SISGCOP", fields.get('relatorios', '')),
+        ("8. PRESCRIÇÕES DIVERSAS", fields.get('prescricoes', '')),
         ("REFERÊNCIAS", fields.get('referencias', ''))
     ]
     
@@ -1039,6 +955,7 @@ if arquivo_oo:
                 'data_expedicao': data_expedicao,
                 'nome_operacao': nome_operacao,
                 'finalidade': parsed_data.get('finalidade', ''),
+                'informacoes_gerais': parsed_data.get('informacoes_gerais', ''),
                 'situacao': parsed_data.get('situacao', ''),
                 'missao': parsed_data.get('missao', ''),
                 'execucao': parsed_data.get('execucao', ''),
