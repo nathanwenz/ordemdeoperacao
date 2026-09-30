@@ -361,6 +361,54 @@ def extrair_secao_flexivel(texto, padrao_inicio, padraos_fim):
         
     return conteudo_secao.strip()
 
+def organizar_e_limpar_situacao(conteudo):
+    """
+    Garante que o texto geral descritivo fique no início da seção Situação,
+    vindo ANTES de qualquer sub-item como '2.1 INFORMAÇÕES GERAIS',
+    e elimina completamente quaisquer títulos duplicados como '2. SITUAÇÃO' ao final.
+    """
+    if not conteudo:
+        return ""
+
+    # Remove qualquer título residual de '2. SITUAÇÃO' ou '2. INFORMAÇÕES GERAIS' isolado
+    conteudo = re.sub(r'^\s*\d*\.?\s*(SITUAÇÃO|INFORMAÇÕES\s+GERAIS)\s*$', '', conteudo, flags=re.IGNORECASE | re.MULTILINE)
+
+    linhas = [l.strip() for l in conteudo.strip().split('\n') if l.strip()]
+    if not linhas:
+        return ""
+
+    idx_sub = -1
+    idx_geral = -1
+
+    for idx, l in enumerate(linhas):
+        if re.match(r'^\d+\.\d+\s+INFORMAÇÕES\s+GERAIS', l, re.IGNORECASE) or re.match(r'^\d+\.\d+\s+SITUAÇÃO', l, re.IGNORECASE):
+            if idx_sub == -1:
+                idx_sub = idx
+        elif l.startswith('A Polícia Militar do Paraná') or 'atuação contínua e ostensiva' in l:
+            idx_geral = idx
+
+    # Se o texto descritivo geral ficou posicionado DEPOIS do sub-item 2.1, inverte a ordem
+    if idx_sub != -1 and idx_geral != -1 and idx_geral > idx_sub:
+        bloco_geral = []
+        bloco_sub = []
+
+        i = 0
+        while i < len(linhas):
+            if i == idx_sub:
+                while i < len(linhas) and not (linhas[i].startswith('A Polícia Militar do Paraná') or 'atuação contínua e ostensiva' in linhas[i]):
+                    bloco_sub.append(linhas[i])
+                    i += 1
+            elif i == idx_geral or (i > idx_sub and (linhas[i].startswith('A Polícia Militar do Paraná') or 'atuação contínua e ostensiva' in linhas[i])):
+                bloco_geral.append(linhas[i])
+                i += 1
+            else:
+                bloco_geral.append(linhas[i])
+                i += 1
+
+        linhas = bloco_geral + bloco_sub
+
+    return "\n".join(linhas).strip()
+
 def normalizar_subnumeracao_secao(conteudo, sec_num):
     """
     Normaliza rigorosamente a sub-numeração dentro de uma seção para que reflita o número correto da seção sec_num.
@@ -373,7 +421,7 @@ def normalizar_subnumeracao_secao(conteudo, sec_num):
     linhas_limpas = []
 
     padrao_titulo_principal = re.compile(
-        r'^\s*(\d*\.?\s*)?(E\s+LOGÍSTICA|FINALIDADE|SITUAÇÃO|MISSÃO|EXECUÇÃO|ADMINISTRAÇÃO|LOGÍSTICA|RELATÓRIOS|PRESCRIÇÕES\s+DIVERSAS|REFERÊNCIAS)\b.*$',
+        r'^\s*(\d*\.?\s*)?(E\s+LOGÍSTICA|FINALIDADE|SITUAÇÃO|INFORMAÇÕES\s+GERAIS|MISSÃO|EXECUÇÃO|ADMINISTRAÇÃO|LOGÍSTICA|RELATÓRIOS|PRESCRIÇÕES\s+DIVERSAS|REFERÊNCIAS)\b.*$',
         re.IGNORECASE
     )
 
@@ -441,6 +489,7 @@ def parsear_ordem_operacao(texto):
 
     # Seção 2: SITUAÇÃO
     s = extrair_secao_flexivel(texto, r'SITUAÇÃO', [r'MISSÃO', r'EXECUÇÃO'])
+    s = organizar_e_limpar_situacao(s)
     s = normalizar_subnumeracao_secao(s, 2)
     dados['situacao'] = s if s else "Ações de policiamento ostensivo e preventivo para a manutenção da ordem pública."
 
@@ -554,7 +603,7 @@ def renderizar_conteudo_docx(doc, conteudo):
                     for c_idx, cell_value in enumerate(row_data):
                         if c_idx < len(row_cells):
                             cell = row_cells[c_idx]
-                            p = cell.paragraphs[0] if cell.paragraphs else cell.add_paragraph()
+                            p = cell.paragraphs if cell.paragraphs else cell.add_paragraph()
                             p.paragraph_format.space_before = Pt(3)
                             p.paragraph_format.space_after = Pt(3)
                             p.paragraph_format.line_spacing = 1.15
@@ -625,15 +674,12 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    table_hdr.columns[0].width = Inches(3.5)
-    table_hdr.columns[1].width = Inches(3.0)
-    
-    row0 = table_hdr.rows[0]
-    row0.cells[0].width = Inches(3.5)
+    row0 = table_hdr.rows
+    row0.cells.width = Inches(3.5)
     row0.cells[1].width = Inches(3.0)
 
     # Célula Esquerda (Unidade)
-    p_left = row0.cells[0].paragraphs[0]
+    p_left = row0.cells.paragraphs
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -642,7 +688,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.size = Pt(10)
 
     # Célula Direita (Local, Data, OS)
-    p_right = row0.cells[1].paragraphs[0]
+    p_right = row0.cells[1].paragraphs
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.2
