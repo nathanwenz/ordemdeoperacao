@@ -417,7 +417,7 @@ def normalizar_subnumeracao_secao(conteudo, sec_num):
     return "\n".join(linhas_limpas).strip()
 
 def parsear_ordem_operacao(texto):
-    """Analisa a Ordem de Operação e extrai os 8 campos na sequência exata solicitada"""
+    """Analisa a Ordem de Operação e extrai os campos em ordem estrita de títulos: 1. Finalidade, 2. Informações Gerais, 3. Missão..."""
     dados = {}
     
     # Número da OO
@@ -435,68 +435,36 @@ def parsear_ordem_operacao(texto):
     dados['nome_op'] = dados['nome_op'].replace('\n', ' ').strip().upper()
 
     # 1. FINALIDADE
-    f = extrair_secao_flexivel(texto, r'FINALIDADE', [r'INFORMAÇÕES\s+GERAIS', r'SITUAÇÃO', r'MISSÃO', r'EXECUÇÃO'])
+    f = extrair_secao_flexivel(texto, r'FINALIDADE', [r'SITUAÇÃO', r'INFORMAÇÕES\s+GERAIS', r'MISSÃO'])
     f = normalizar_subnumeracao_secao(f, 1)
     dados['finalidade'] = f if f else "Realizar ações de policiamento ostensivo preventivo e preservação da ordem pública."
 
-    # Extração conjunta do bloco entre Finalidade e Missão para separar Informações Gerais e Situação
-    bloco_sit_completo = extrair_secao_flexivel(texto, r'SITUAÇÃO|INFORMAÇÕES\s+GERAIS', [r'MISSÃO', r'EXECUÇÃO'])
+    # 2. INFORMAÇÕES GERAIS (Reúne todo o contexto situacional e informações gerais da Seção 2 da OO)
+    ig = extrair_secao_flexivel(texto, r'SITUAÇÃO|INFORMAÇÕES\s+GERAIS', [r'MISSÃO', r'EXECUÇÃO'])
+    ig = re.sub(r'^\s*\d*\.?\s*(SITUAÇÃO|INFORMAÇÕES\s+GERAIS)\s*$', '', ig, flags=re.IGNORECASE | re.MULTILINE)
+    ig = re.sub(r'^\s*2\.1\s*INFORMAÇÕES\s+GERAIS\s*$', '', ig, flags=re.IGNORECASE | re.MULTILINE)
+    ig = normalizar_subnumeracao_secao(ig, 2)
+    dados['informacoes_gerais'] = ig if ig else f"A Operação “{dados['nome_op']}” possui abrangência na área do 18º BPM, visando a preservação da ordem pública e segurança da comunidade."
 
-    linhas_bloco = [l.strip() for l in bloco_sit_completo.split('\n') if l.strip()]
-    linhas_ig = []
-    linhas_sit = []
-
-    for l in linhas_bloco:
-        if re.match(r'^\s*(\d*\.?\s*)?(SITUAÇÃO|INFORMAÇÕES\s+GERAIS)\s*$', l, re.IGNORECASE):
-            continue
-        if re.match(r'^\s*2\.1\s*INFORMAÇÕES\s+GERAIS\s*$', l, re.IGNORECASE):
-            continue
-
-        if re.match(r'^[a-z0-9][\.\)\-]\s+', l, re.IGNORECASE) or 'abrangência' in l.lower() or 'execução regionalizada' in l.lower():
-            linhas_ig.append(l)
-        elif l.startswith('A Polícia Militar do Paraná') or 'atuação contínua' in l.lower() or 'mandados de prisão' in l.lower():
-            linhas_sit.append(l)
-        else:
-            if linhas_ig and not linhas_sit:
-                linhas_ig.append(l)
-            else:
-                linhas_sit.append(l)
-
-    # 2. INFORMAÇÕES GERAIS
-    ig_str = "\n".join(linhas_ig).strip()
-    if not ig_str:
-        ig_str = f"A Operação “{dados['nome_op']}” possui abrangência na área do 18º BPM, concentrando esforços na preservação da ordem pública, cumprimento de mandados e fiscalização."
-    else:
-        ig_str = normalizar_subnumeracao_secao(ig_str, 2)
-    dados['informacoes_gerais'] = ig_str
-
-    # 3. SITUAÇÃO
-    sit_str = "\n".join(linhas_sit).strip()
-    if not sit_str:
-        sit_str = "A Polícia Militar do Paraná, em sua atuação contínua e ostensiva, desenvolve operações voltadas à manutenção da ordem pública e segurança da comunidade."
-    else:
-        sit_str = normalizar_subnumeracao_secao(sit_str, 3)
-    dados['situacao'] = sit_str
-
-    # 4. MISSÃO (Garantida)
+    # 3. MISSÃO (Garantida e preservada na Seção 3)
     m = extrair_secao_flexivel(texto, r'MISSÃO', [r'EXECUÇÃO', r'ADMINISTRAÇÃO', r'LOGÍSTICA'])
     if not m or len(m) < 10:
         m = f"O 18º BPM executará o policiamento ostensivo e a preservação da ordem pública na sua circunscrição territorial no âmbito da “{dados['nome_op']}”, visando a prevenção de crimes e a garantia da segurança pública."
     else:
-        m = normalizar_subnumeracao_secao(m, 4)
+        m = normalizar_subnumeracao_secao(m, 3)
     dados['missao'] = m
 
-    # 5. EXECUÇÃO
+    # 4. EXECUÇÃO
     e = extrair_secao_flexivel(texto, r'EXECUÇÃO', [r'ADMINISTRAÇÃO', r'LOGÍSTICA', r'RELATÓRIOS'])
-    e = normalizar_subnumeracao_secao(e, 5)
+    e = normalizar_subnumeracao_secao(e, 4)
     dados['execucao'] = e if e else "Atuação integrada das equipes operacionais do 18º BPM em conformidade com o planejamento."
 
-    # 6. ADMINISTRAÇÃO E LOGÍSTICA
+    # 5. ADMINISTRAÇÃO E LOGÍSTICA
     l = extrair_secao_flexivel(texto, r'ADMINISTRAÇÃO|LOGÍSTICA', [r'RELATÓRIOS', r'PRESCRIÇÕES'])
-    l = normalizar_subnumeracao_secao(l, 6)
+    l = normalizar_subnumeracao_secao(l, 5)
     dados['logistica'] = l if l else "Uniforme: Orgânico da OPM (4º RUPM).\nArmamento e equipamento: Orgânico compatível com o serviço.\nTransporte: Viaturas operacionais do 18º BPM."
 
-    # 7. RELATÓRIOS E SISGCOP
+    # 6. RELATÓRIOS E SISGCOP
     r = extrair_secao_flexivel(texto, r'RELATÓRIOS', [r'PRESCRIÇÕES', r'REFERÊNCIAS'])
     match_sisgcop = re.search(r'(\d{5,6})\s*[\-–]?\s*[\"“]?OPERAÇÃO', texto, re.IGNORECASE)
     if not match_sisgcop:
@@ -504,15 +472,15 @@ def parsear_ordem_operacao(texto):
     num_sisgcop = match_sisgcop.group(1) if match_sisgcop else ""
     
     if r:
-        r = normalizar_subnumeracao_secao(r, 7)
+        r = normalizar_subnumeracao_secao(r, 6)
         dados['relatorios'] = r
     else:
         dados['relatorios'] = f"Os resultados obtidos deverão ser lançados no SISGCOP{' sob o código ' + num_sisgcop if num_sisgcop else ''} até o término da operação. Confecção dos Boletins de Ocorrência (BOU) no SADE."
 
-    # 8. PRESCRIÇÕES DIVERSAS
+    # 7. PRESCRIÇÕES DIVERSAS
     p = extrair_secao_flexivel(texto, r'PRESCRIÇÕES\s+DIVERSAS|PRESCRIÇÕES', [r'REFERÊNCIAS', r'DISTRIBUIÇÃO'])
     if p:
-        p = normalizar_subnumeracao_secao(p, 8)
+        p = normalizar_subnumeracao_secao(p, 7)
         dados['prescricoes'] = p
     else:
         dados['prescricoes'] = "Os policiais militares deverão atuar com bom senso, urbanidade, legalidade e estrito cumprimento do dever legal. Preleção obrigatória antes do início do serviço."
@@ -565,7 +533,7 @@ def renderizar_conteudo_docx(doc, conteudo):
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
                 cels = [c.strip() for c in linhas[i].split('|')]
-                if len(cels) > 1 and cels[0] == "":
+                if len(cels) > 1 and cels == "":
                     cels = cels[1:]
                 if len(cels) > 1 and cels[-1] == "":
                     cels = cels[:-1]
@@ -663,14 +631,11 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.columns[1].width = Inches(3.0)
     
     row0 = table_hdr.rows[0]
-    cell_left = row0.cells[0]
-    cell_right = row0.cells[1]
-    
-    cell_left.width = Inches(3.5)
-    cell_right.width = Inches(3.0)
+    row0.cells[0].width = Inches(3.5)
+    row0.cells[1].width = Inches(3.0)
 
     # Célula Esquerda (Unidade)
-    p_left = cell_left.paragraphs[0]
+    p_left = row0.cells[0].paragraphs[0]
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -679,7 +644,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.size = Pt(10)
 
     # Célula Direita (Local, Data, OS)
-    p_right = cell_right.paragraphs[0]
+    p_right = row0.cells[1].paragraphs[0]
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.2
@@ -707,16 +672,15 @@ def gerar_ordem_servico_docx(fields):
     r_tit.font.size = Pt(12)
     r_tit.font.color.rgb = RGBColor(0, 32, 96)
 
-    # Seções Estruturadas na Sequência Exata Solicitada (1 a 8 + Referências)
+    # Seções Estruturadas na Sequência Exata Solicitada pelo Usuário
     secoes = [
         ("1. FINALIDADE", fields.get('finalidade', '')),
         ("2. INFORMAÇÕES GERAIS", fields.get('informacoes_gerais', '')),
-        ("3. SITUAÇÃO", fields.get('situacao', '')),
-        ("4. MISSÃO", fields.get('missao', '')),
-        ("5. EXECUÇÃO", fields.get('execucao', '')),
-        ("6. ADMINISTRAÇÃO E LOGÍSTICA", fields.get('logistica', '')),
-        ("7. RELATÓRIOS E SISGCOP", fields.get('relatorios', '')),
-        ("8. PRESCRIÇÕES DIVERSAS", fields.get('prescricoes', '')),
+        ("3. MISSÃO", fields.get('missao', '')),
+        ("4. EXECUÇÃO", fields.get('execucao', '')),
+        ("5. ADMINISTRAÇÃO E LOGÍSTICA", fields.get('logistica', '')),
+        ("6. RELATÓRIOS E SISGCOP", fields.get('relatorios', '')),
+        ("7. PRESCRIÇÕES DIVERSAS", fields.get('prescricoes', '')),
         ("REFERÊNCIAS", fields.get('referencias', ''))
     ]
 
@@ -779,7 +743,7 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body, style_tab
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
                 cels = [c.strip() for c in linhas[i].split('|')]
-                if len(cels) > 1 and cels[0] == "":
+                if len(cels) > 1 and cels == "":
                     cels = cels[1:]
                 if len(cels) > 1 and cels[-1] == "":
                     cels = cels[:-1]
@@ -884,12 +848,11 @@ def gerar_ordem_servico_pdf(fields):
     secoes = [
         ("1. FINALIDADE", fields.get('finalidade', '')),
         ("2. INFORMAÇÕES GERAIS", fields.get('informacoes_gerais', '')),
-        ("3. SITUAÇÃO", fields.get('situacao', '')),
-        ("4. MISSÃO", fields.get('missao', '')),
-        ("5. EXECUÇÃO", fields.get('execucao', '')),
-        ("6. ADMINISTRAÇÃO E LOGÍSTICA", fields.get('logistica', '')),
-        ("7. RELATÓRIOS E SISGCOP", fields.get('relatorios', '')),
-        ("8. PRESCRIÇÕES DIVERSAS", fields.get('prescricoes', '')),
+        ("3. MISSÃO", fields.get('missao', '')),
+        ("4. EXECUÇÃO", fields.get('execucao', '')),
+        ("5. ADMINISTRAÇÃO E LOGÍSTICA", fields.get('logistica', '')),
+        ("6. RELATÓRIOS E SISGCOP", fields.get('relatorios', '')),
+        ("7. PRESCRIÇÕES DIVERSAS", fields.get('prescricoes', '')),
         ("REFERÊNCIAS", fields.get('referencias', ''))
     ]
     
@@ -956,7 +919,6 @@ if arquivo_oo:
                 'nome_operacao': nome_operacao,
                 'finalidade': parsed_data.get('finalidade', ''),
                 'informacoes_gerais': parsed_data.get('informacoes_gerais', ''),
-                'situacao': parsed_data.get('situacao', ''),
                 'missao': parsed_data.get('missao', ''),
                 'execucao': parsed_data.get('execucao', ''),
                 'logistica': parsed_data.get('logistica', ''),
