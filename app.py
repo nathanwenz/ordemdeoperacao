@@ -263,7 +263,6 @@ def extrair_texto_arquivo(uploaded_file):
                 else:
                     table_bboxes = [t.bbox for t in tables]
                     
-                    # Filtra e remove o texto que pertence a tabelas para evitar duplicação bruta
                     def not_in_table(obj):
                         obj_x0 = obj.get('x0', 0)
                         obj_top = obj.get('top', 0)
@@ -343,24 +342,24 @@ def limpar_secao_conteudo(conteudo):
         
     while linhas:
         primeira = linhas[0]
-        if re.match(r'^\d*\.?\s*(FINALIDADE|SITUAÇÃO|MISSÃO|EXECUÇÃO|ADMINISTRAÇÃO|LOGÍSTICA|RELATÓRIOS|PRESCRIÇÕES\s+DIVERSAS|REFERÊNCIAS)\b', primeira, re.IGNORECASE):
+        if re.match(r'^\s*\d*\.?\s*(FINALIDADE|SITUAÇÃO|MISSÃO|EXECUÇÃO|ADMINISTRAÇÃO|LOGÍSTICA|RELATÓRIOS|PRESCRIÇÕES\s+DIVERSAS|REFERÊNCIAS)\b', primeira, re.IGNORECASE):
             linhas.pop(0)
         else:
             break
             
     return '\n'.join(linhas).strip()
 
-def extrair_secao_perfeita(texto, padrao_inicio, padrao_fim):
+def extrair_secao_flexivel(texto, padrao_inicio, padraos_fim):
     """
     Extrai o conteúdo de uma seção consumindo a linha inteira do título de início,
-    evitando que fragmentos da linha do título fiquem no corpo do texto.
+    buscando flexivelmente até a ocorrência de qualquer um dos padrões em padraos_fim.
     """
     regex_inicio = rf'^[ \t]*\d*\.?\s*{padrao_inicio}[^\n]*\n'
     match_inicio = re.search(regex_inicio, texto, re.IGNORECASE | re.MULTILINE)
     
     if not match_inicio:
-        regex_fallback = rf'{padrao_inicio}'
-        match_fb = re.search(regex_fallback, texto, re.IGNORECASE)
+        regex_fb = rf'{padrao_inicio}'
+        match_fb = re.search(regex_fb, texto, re.IGNORECASE)
         if not match_fb:
             return ""
         pos_inicio = match_fb.end()
@@ -371,7 +370,7 @@ def extrair_secao_perfeita(texto, padrao_inicio, padrao_fim):
         
     conteudo_restante = texto[pos_conteudo:]
     
-    regex_fim = rf'^[ \t]*\d*\.?\s*(?:{padrao_fim})[^\n]*'
+    regex_fim = rf'^[ \t]*\d*\.?\s*(?:{"|".join(padraos_fim)})[^\n]*'
     match_fim = re.search(regex_fim, conteudo_restante, re.IGNORECASE | re.MULTILINE)
     
     if match_fim:
@@ -381,8 +380,55 @@ def extrair_secao_perfeita(texto, padrao_inicio, padrao_fim):
         
     return limpar_secao_conteudo(conteudo_secao)
 
+def normalizar_subnumeracao_secao(conteudo, sec_num):
+    """
+    Normaliza rigorosamente a sub-numeração dentro de uma seção para que reflita o número correto da seção sec_num.
+    Remove repetições de cabeçalhos de seção e re-sequencia números duplicados ou desalinhados (ex: 3.1 na seção 4 vira 4.1).
+    """
+    if not conteudo:
+        return ""
+
+    linhas = conteudo.strip().split('\n')
+    linhas_limpas = []
+
+    padrao_titulo_principal = re.compile(rf'^\s*(\d*\.?\s*)?(E\s+LOGÍSTICA|FINALIDADE|SITUAÇÃO|MISSÃO|EXECUÇÃO|ADMINISTRAÇÃO|LOGÍSTICA|RELATÓRIOS|PRESCRIÇÕES\s+DIVERSAS|REFERÊNCIAS)\b.*$', re.IGNORECASE)
+
+    sub_counter = 1
+    seen_subnums = set()
+
+    for linha in linhas:
+        l_str = linha.strip()
+        if not l_str:
+            continue
+
+        if padrao_titulo_principal.match(l_str) and len(l_str) < 70 and not '|' in l_str:
+            continue
+
+        match_sub = re.match(r'^(\d+)\.(\d+)(\.\d+)?\s*(.*)', l_str)
+        if match_sub:
+            prefix_main, prefix_sub, prefix_subsub, rest = match_sub.groups()
+            prefix_subsub = prefix_subsub if prefix_subsub else ""
+
+            curr_sub_num = int(prefix_sub)
+            sub_key = f"{sec_num}.{curr_sub_num}{prefix_subsub}"
+
+            if int(prefix_main) != sec_num or sub_key in seen_subnums:
+                new_sub_str = f"{sec_num}.{sub_counter}{prefix_subsub} {rest}"
+                seen_subnums.add(f"{sec_num}.{sub_counter}{prefix_subsub}")
+                sub_counter += 1
+            else:
+                new_sub_str = f"{sec_num}.{curr_sub_num}{prefix_subsub} {rest}"
+                seen_subnums.add(sub_key)
+                sub_counter = max(sub_counter, curr_sub_num + 1)
+
+            linhas_limpas.append(new_sub_str)
+        else:
+            linhas_limpas.append(l_str)
+
+    return "\n".join(linhas_limpas)
+
 def parsear_ordem_operacao(texto):
-    """Analisa a Ordem de Operação e extrai os campos em ordem numérica estrita sem duplicações"""
+    """Analisa a Ordem de Operação e extrai os campos em ordem numérica estrita (1 a 7) sem pular nada"""
     dados = {}
     
     # 1. Número da OO
@@ -400,47 +446,58 @@ def parsear_ordem_operacao(texto):
     dados['nome_op'] = dados['nome_op'].replace('\n', ' ').strip().upper()
 
     # Seção 1: FINALIDADE
-    finalidade = extrair_secao_perfeita(texto, r'FINALIDADE', r'SITUAÇÃO')
-    dados['finalidade'] = finalidade if finalidade else "Realizar ações de policiamento ostensivo preventivo e preservação da ordem pública."
+    f = extrair_secao_flexivel(texto, r'FINALIDADE', [r'SITUAÇÃO', r'MISSÃO', r'EXECUÇÃO'])
+    f = normalizar_subnumeracao_secao(f, 1)
+    dados['finalidade'] = f if f else "Realizar ações de policiamento ostensivo preventivo e preservação da ordem pública."
 
     # Seção 2: SITUAÇÃO
-    situacao = extrair_secao_perfeita(texto, r'SITUAÇÃO', r'MISSÃO')
-    dados['situacao'] = situacao if situacao else "Ações de policiamento ostensivo e preventivo para a manutenção da ordem pública."
+    s = extrair_secao_flexivel(texto, r'SITUAÇÃO', [r'MISSÃO', r'EXECUÇÃO'])
+    s = normalizar_subnumeracao_secao(s, 2)
+    dados['situacao'] = s if s else "Ações de policiamento ostensivo e preventivo para a manutenção da ordem pública."
 
-    # Seção 3: MISSÃO
-    missao = extrair_secao_perfeita(texto, r'MISSÃO', r'EXECUÇÃO')
-    dados['missao'] = missao if missao else "O 18º BPM executará o policiamento ostensivo e de preservação da ordem pública na sua circunscrição territorial."
+    # Seção 3: MISSÃO (Garantida - nunca pulada!)
+    m = extrair_secao_flexivel(texto, r'MISSÃO', [r'EXECUÇÃO', r'ADMINISTRAÇÃO', r'LOGÍSTICA'])
+    if not m or len(m) < 10:
+        m = f"O 18º BPM executará o policiamento ostensivo e a preservação da ordem pública na sua circunscrição territorial no âmbito da “{dados['nome_op']}”, visando a prevenção de crimes e a garantia da segurança pública."
+    else:
+        m = normalizar_subnumeracao_secao(m, 3)
+    dados['missao'] = m
 
     # Seção 4: EXECUÇÃO
-    execucao = extrair_secao_perfeita(texto, r'EXECUÇÃO', r'ADMINISTRAÇÃO|LOGÍSTICA')
-    dados['execucao'] = execucao if execucao else "Atuação integrada das equipes operacionais do 18º BPM em conformidade com o planejamento."
+    e = extrair_secao_flexivel(texto, r'EXECUÇÃO', [r'ADMINISTRAÇÃO', r'LOGÍSTICA', r'RELATÓRIOS'])
+    e = normalizar_subnumeracao_secao(e, 4)
+    dados['execucao'] = e if e else "Atuação integrada das equipes operacionais do 18º BPM em conformidade com o planejamento."
 
     # Seção 5: ADMINISTRAÇÃO E LOGÍSTICA
-    logistica = extrair_secao_perfeita(texto, r'ADMINISTRAÇÃO|LOGÍSTICA', r'RELATÓRIOS|PRESCRIÇÕES')
-    dados['logistica'] = logistica if logistica else "Uniforme: Orgânico da OPM (4º RUPM).\nArmamento e equipamento: Orgânico compatível com o serviço.\nTransporte: Viaturas operacionais do 18º BPM."
+    l = extrair_secao_flexivel(texto, r'ADMINISTRAÇÃO|LOGÍSTICA', [r'RELATÓRIOS', r'PRESCRIÇÕES'])
+    l = normalizar_subnumeracao_secao(l, 5)
+    dados['logistica'] = l if l else "Uniforme: Orgânico da OPM (4º RUPM).\nArmamento e equipamento: Orgânico compatível com o serviço.\nTransporte: Viaturas operacionais do 18º BPM."
 
     # Seção 6: RELATÓRIOS E SISGCOP
-    relatorios = extrair_secao_perfeita(texto, r'RELATÓRIOS', r'PRESCRIÇÕES|REFERÊNCIAS')
-    
+    r = extrair_secao_flexivel(texto, r'RELATÓRIOS', [r'PRESCRIÇÕES', r'REFERÊNCIAS'])
     match_sisgcop = re.search(r'(\d{5,6})\s*[\-–]?\s*[\"“]?OPERAÇÃO', texto, re.IGNORECASE)
     if not match_sisgcop:
         match_sisgcop = re.search(r'SISGCOP[^\d]*(\d{5,6})', texto, re.IGNORECASE)
-    
     num_sisgcop = match_sisgcop.group(1) if match_sisgcop else ""
     
-    if relatorios:
-        dados['relatorios'] = relatorios
+    if r:
+        r = normalizar_subnumeracao_secao(r, 6)
+        dados['relatorios'] = r
     else:
         dados['relatorios'] = f"Os resultados obtidos deverão ser lançados no SISGCOP{' sob o código ' + num_sisgcop if num_sisgcop else ''} até o término da operação. Confecção dos Boletins de Ocorrência (BOU) no SADE."
 
     # Seção 7: PRESCRIÇÕES DIVERSAS
-    prescricoes = extrair_secao_perfeita(texto, r'PRESCRIÇÕES\s+DIVERSAS|PRESCRIÇÕES', r'REFERÊNCIAS|DISTRIBUIÇÃO')
-    dados['prescricoes'] = prescricoes if prescricoes else "Os policiais militares deverão atuar com bom senso, urbanidade, legalidade e estrito cumprimento do dever legal. Preleção obrigatória antes do início do serviço."
+    p = extrair_secao_flexivel(texto, r'PRESCRIÇÕES\s+DIVERSAS|PRESCRIÇÕES', [r'REFERÊNCIAS', r'DISTRIBUIÇÃO'])
+    if p:
+        p = normalizar_subnumeracao_secao(p, 7)
+        dados['prescricoes'] = p
+    else:
+        dados['prescricoes'] = "Os policiais militares deverão atuar com bom senso, urbanidade, legalidade e estrito cumprimento do dever legal. Preleção obrigatória antes do início do serviço."
 
-    # REFERÊNCIAS (No final do documento)
-    ref_extracted = extrair_secao_perfeita(texto, r'REFERÊNCIAS', r'DISTRIBUIÇÃO|$')
-    if ref_extracted and len(ref_extracted.strip()) > 10:
-        dados['referencias'] = ref_extracted
+    # REFERÊNCIAS
+    ref = extrair_secao_flexivel(texto, r'REFERÊNCIAS', [r'DISTRIBUIÇÃO', r'$'])
+    if ref and len(ref.strip()) > 10:
+        dados['referencias'] = ref
     else:
         dados['referencias'] = f"a) Constituição da República Federativa do Brasil de 1988;\nb) Constituição do Estado do Paraná de 1989;\nc) Lei n.º 22.354/2025 – Lei de Organização Básica da PMPR;\nd) Ordem de Operação nº {dados['num_oo']} – 2º CRPM ({dados['nome_op']});\ne) Determinação do Comandante do 18º BPM."
 
@@ -621,7 +678,7 @@ def gerar_ordem_servico_docx(fields):
     r_tit.font.size = Pt(12)
     r_tit.font.color.rgb = RGBColor(0, 32, 96)
 
-    # Seções Estruturadas em Sequência Numérica Estrita PMPR
+    # Seções Estruturadas em Sequência Numérica Estrita PMPR (Garantido de 1 a 7)
     secoes = [
         ("1. FINALIDADE", fields.get('finalidade', '')),
         ("2. SITUAÇÃO", fields.get('situacao', '')),
@@ -634,16 +691,15 @@ def gerar_ordem_servico_docx(fields):
     ]
 
     for tit, conteudo in secoes:
-        if conteudo and conteudo.strip():
-            p_sec = doc.add_paragraph()
-            p_sec.paragraph_format.space_before = Pt(14)
-            p_sec.paragraph_format.space_after = Pt(4)
-            r_sec = p_sec.add_run(tit)
-            r_sec.bold = True
-            r_sec.font.name = "Arial"
-            r_sec.font.size = Pt(11)
+        p_sec = doc.add_paragraph()
+        p_sec.paragraph_format.space_before = Pt(14)
+        p_sec.paragraph_format.space_after = Pt(4)
+        r_sec = p_sec.add_run(tit)
+        r_sec.bold = True
+        r_sec.font.name = "Arial"
+        r_sec.font.size = Pt(11)
 
-            renderizar_conteudo_docx(doc, conteudo)
+        renderizar_conteudo_docx(doc, conteudo)
 
     # Assinatura do Comandante do 18º BPM
     p_ass = doc.add_paragraph()
@@ -878,9 +934,8 @@ def gerar_ordem_servico_pdf(fields):
     ]
     
     for tit, conteudo in secoes:
-        if conteudo and conteudo.strip():
-            story.append(Paragraph(tit, style_sec_title))
-            renderizar_conteudo_pdf(story, conteudo, style_subnum_title, style_body, style_table_hdr)
+        story.append(Paragraph(tit, style_sec_title))
+        renderizar_conteudo_pdf(story, conteudo, style_subnum_title, style_body, style_table_hdr)
     
     story.append(Spacer(1, 20))
     story.append(Paragraph("<i>(Assinado eletronicamente)</i>", style_ass))
