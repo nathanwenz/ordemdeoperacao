@@ -21,10 +21,11 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
-# Configuração da página e tema
-st.set_page_config(page_title="18º BPM — Gerador de Ordem de Serviço", page_icon="📑", layout="centered")
+# =========================================================
+# CONFIGURAÇÃO DA PÁGINA E TEMA VISUAL (DARK MODE)
+# =========================================================
+st.set_page_config(page_title="18º BPM — Portal Operacional", page_icon="🛡️", layout="centered")
 
-# Busca flexível da imagem do brasão
 def obter_caminho_brasao():
     for nome in ["brasao.png", "brasao.PNG", "Brasao.png", "BRASAO.PNG", "brasao.jpg", "brasao.jpeg"]:
         if os.path.exists(nome):
@@ -33,7 +34,6 @@ def obter_caminho_brasao():
 
 caminho_brasao = obter_caminho_brasao()
 
-# 🎨 MODO ESCURO COM BRASÃO EM MARCA D'ÁGUA EM TELA CHEIA
 def gerar_css_app(caminho_img):
     css_base = """
     <style>
@@ -42,6 +42,24 @@ def gerar_css_app(caminho_img):
             border-radius: 10px;
             padding: 10px;
             border: 1px solid #2E364A;
+        }
+        .portal-card {
+            background: linear-gradient(135deg, rgba(30, 38, 56, 0.95), rgba(18, 23, 35, 0.95));
+            border: 1px solid #2E364A;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            margin-bottom: 15px;
+        }
+        .portal-card h3 {
+            color: #60A5FA !important;
+            margin-bottom: 8px;
+        }
+        .portal-card p {
+            color: #9CA3AF;
+            font-size: 13.5px;
+            margin-bottom: 12px;
         }
         .stButton>button {
             background-color: #002060;
@@ -96,7 +114,7 @@ def gerar_css_app(caminho_img):
 
 st.markdown(gerar_css_app(caminho_brasao), unsafe_allow_html=True)
 
-# 🏷 ASSINATURA
+# 🏷 ASSINATURA MOVIDA PARA A DIREITA
 st.markdown("""
 <div style="position: fixed; bottom: 15px; right: 140px; text-align: right; color: #9CA3AF; font-size: 12px; font-family: sans-serif; z-index: 999999; line-height: 1.4; background-color: rgba(14, 17, 23, 0.9); padding: 6px 12px; border-radius: 6px; border: 1px solid #2E364A;">
     Desenvolvido por:<br>
@@ -104,13 +122,18 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# 🔒 CONFIGURAÇÃO DA SENHA DE ACESSO
+# =========================================================
+# CONTROLE DE SESSÃO E AUTENTICAÇÃO
+# =========================================================
 SENHA_CORRETA = "deusa"
 
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 
-# Tela de Login
+if "pagina_atual" not in st.session_state:
+    st.session_state.pagina_atual = "portal"  # Páginas: 'portal', 'gerador_os', 'segundo_site'
+
+# Tela de Login Única
 if not st.session_state.autenticado:
     if caminho_brasao:
         col1, col2, col3 = st.columns(3)
@@ -118,11 +141,11 @@ if not st.session_state.autenticado:
             st.image(caminho_brasao, width=150)
 
     st.title("🔒 Acesso Restrito — 18º BPM")
-    st.write("Digite a senha de acesso para utilizar o Gerador de Ordens de Serviço (OS).")
+    st.write("Digite a senha de acesso para utilizar o Portal de Sistemas Operacionais.")
     
     senha_input = st.text_input("Senha de acesso:", type="password")
     
-    if st.button("Entrar"):
+    if st.button("Entrar no Portal"):
         if senha_input == SENHA_CORRETA:
             st.session_state.autenticado = True
             st.success("Acesso liberado!")
@@ -131,8 +154,9 @@ if not st.session_state.autenticado:
             st.error("Senha incorreta! Verifique e tente novamente.")
     st.stop()
 
+
 # =========================================================
-# FUNÇÕES DE EXTRAÇÃO, LIMPEZA DE ASSINATURA E PARSER DE OO
+# FUNÇÕES AUXILIARES — GERADOR DE ORDEM DE SERVIÇO
 # =========================================================
 
 MESES = {
@@ -242,10 +266,6 @@ def safe_crop_text(page, y0, y1):
         return ""
 
 def is_real_data_table(extracted_tbl):
-    """
-    Verifica se a estrutura extraída é de fato uma tabela com 2+ colunas de dados tabulares.
-    Descarte caixas de texto com bordas ou quadros de coluna única.
-    """
     if not extracted_tbl or len(extracted_tbl) == 0:
         return False
     max_cols = 0
@@ -533,8 +553,9 @@ def eh_titulo_subsecao(linha):
         return True
     return False
 
+
 # =========================================================
-# GERADOR DO DOCUMENTO WORD (.DOCX)
+# GERADOR WORD (.DOCX) — GERADOR DE OS
 # =========================================================
 
 def renderizar_conteudo_docx(doc, conteudo, forcar_texto=False):
@@ -542,7 +563,6 @@ def renderizar_conteudo_docx(doc, conteudo, forcar_texto=False):
     if not conteudo_formatado or not conteudo_formatado.strip():
         return
 
-    # Se forcar_texto for True (ex: Prescrições Diversas), substitui delimitadores de tabela por espaço
     if forcar_texto:
         conteudo_formatado = conteudo_formatado.replace('|', ' ')
 
@@ -554,12 +574,11 @@ def renderizar_conteudo_docx(doc, conteudo, forcar_texto=False):
             i += 1
             continue
             
-        # Apenas constrói tabela se NAO forcar_texto E houver 2 ou mais colunas com '|'
         if not forcar_texto and '|' in linha:
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
                 cels = [c.strip() for c in linhas[i].split('|')]
-                if len(cels) > 1 and cels[0] == "":
+                if len(cels) > 1 and cels == "":
                     cels = cels[1:]
                 if len(cels) > 1 and cels[-1] == "":
                     cels = cels[:-1]
@@ -594,7 +613,7 @@ def renderizar_conteudo_docx(doc, conteudo, forcar_texto=False):
                         for c_idx, cell_value in enumerate(row_data):
                             if c_idx < len(row_cells):
                                 cell = row_cells[c_idx]
-                                p = cell.paragraphs[0] if cell.paragraphs else cell.add_paragraph()
+                                p = cell.paragraphs if cell.paragraphs else cell.add_paragraph()
                                 p.paragraph_format.space_before = Pt(3)
                                 p.paragraph_format.space_after = Pt(3)
                                 p.paragraph_format.line_spacing = 1.15
@@ -663,14 +682,14 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    row0 = table_hdr.rows[0]
-    cell_left = row0.cells[0]
-    cell_right = row0.cells[1]
+    row0 = table_hdr.rows
+    cell_left = row0.cells
+    cell_right = row0.cells
     
     cell_left.width = Inches(3.5)
     cell_right.width = Inches(3.0)
 
-    p_left = cell_left.paragraphs[0]
+    p_left = cell_left.paragraphs
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -678,7 +697,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.name = "Arial"
     r_l.font.size = Pt(10)
 
-    p_right = cell_right.paragraphs[0]
+    p_right = cell_right.paragraphs
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.2
@@ -724,11 +743,9 @@ def gerar_ordem_servico_docx(fields):
         r_sec.font.name = "Arial"
         r_sec.font.size = Pt(11)
 
-        # Se for PRESCRIÇÕES DIVERSAS, força texto puro sem tabela!
         eh_prescricoes = "PRESCRIÇÕES" in tit.upper()
         renderizar_conteudo_docx(doc, conteudo, forcar_texto=eh_prescricoes)
 
-    # Assinatura com "(assinado eletronicamente)" em texto bem pequeno único acima do nome
     p_ass = doc.add_paragraph()
     p_ass.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p_ass.paragraph_format.space_before = Pt(28)
@@ -754,8 +771,9 @@ def gerar_ordem_servico_docx(fields):
     buffer.seek(0)
     return buffer.getvalue()
 
+
 # =========================================================
-# GERADOR NATIVO DE PDF (USANDO REPORTLAB)
+# GERADOR PDF (REPORTLAB) — GERADOR DE OS
 # =========================================================
 
 def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body, style_table_hdr, forcar_texto=False):
@@ -763,7 +781,6 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body, style_tab
     if not conteudo_formatado or not conteudo_formatado.strip():
         return
 
-    # Se forcar_texto for True (ex: Prescrições Diversas), substitui delimitadores de tabela por espaço
     if forcar_texto:
         conteudo_formatado = conteudo_formatado.replace('|', ' ')
 
@@ -910,93 +927,167 @@ def gerar_ordem_servico_pdf(fields):
     buffer.seek(0)
     return buffer.getvalue()
 
+
 # =========================================================
-# INTERFACE PRINCIPAL STREAMLIT
+# MÓDULO 1: GERADOR DE ORDEM DE SERVIÇO (SITE 1)
 # =========================================================
+def render_modulo_gerador_os():
+    st.title("📑 Gerador de Ordem de Serviço (OS)")
+    st.caption("18º Batalhão de Polícia Militar — PMPR")
+    st.write("Envie a **Ordem de Operação (OO)** para extração automática e geração da **Ordem de Serviço (OS)**.")
 
-if caminho_brasao:
-    col1, col2, col3 = st.columns(3)
-    with col2:
-        st.image(caminho_brasao, width=150)
+    arquivo_oo = st.file_uploader("Envie o arquivo da Ordem de Operação (PDF ou DOCX)", type=["pdf", "docx", "doc"])
 
-st.title("📑 Gerador de Ordem de Serviço (OS)")
-st.caption("18º Batalhão de Polícia Militar — PMPR")
-st.write("Envie a **Ordem de Operação (OO)** para extração automática e geração da **Ordem de Serviço (OS)**.")
+    if arquivo_oo:
+        texto_extraido = extrair_texto_arquivo(arquivo_oo)
+        
+        if texto_extraido.strip():
+            st.success("Ordem de Operação analisada com sucesso!")
+            
+            parsed_data = parsear_ordem_operacao(texto_extraido)
+            
+            st.subheader("📝 Informações da Ordem de Serviço")
+            st.write("Ajuste os campos essenciais abaixo antes de gerar os documentos:")
 
-arquivo_oo = st.file_uploader("Envie o arquivo da Ordem de Operação (PDF ou DOCX)", type=["pdf", "docx", "doc"])
+            col_a, col_b = st.columns(2)
+            with col_a:
+                num_os = st.text_input("Número da Ordem de Serviço (OS)", value="077")
+                num_oo = st.text_input("Ordem de Operação de Origem", value=parsed_data.get('num_oo', '000/2026'))
+            with col_b:
+                data_expedicao = st.text_input("Data de Expedição da OS", value=data_atual_extenso())
+                nome_operacao = st.text_input("Nome da Operação", value=parsed_data.get('nome_op', 'OPERAÇÃO POLICIAL'))
 
-if arquivo_oo:
-    texto_extraido = extrair_texto_arquivo(arquivo_oo)
+            col_c, col_d = st.columns(2)
+            with col_c:
+                nome_comandante = st.text_input("Comandante / Assinatura", value="Ten.-Cel. QOEM PM Helder de Lima Dantas Junior")
+            with col_d:
+                cargo_comandante = st.text_input("Cargo / Função", value="Comandante do 18º BPM.")
+
+            st.session_state['parsed_full_data'] = parsed_data
+
+            if st.button("🚀 Gerar Ordem de Serviço (Word e PDF)"):
+                fields_final = {
+                    'num_os': num_os,
+                    'num_oo': num_oo,
+                    'data_expedicao': data_expedicao,
+                    'nome_operacao': nome_operacao,
+                    'finalidade': parsed_data.get('finalidade', ''),
+                    'informacoes_gerais': parsed_data.get('informacoes_gerais', ''),
+                    'missao': parsed_data.get('missao', ''),
+                    'execucao': parsed_data.get('execucao', ''),
+                    'logistica': parsed_data.get('logistica', ''),
+                    'relatorios': parsed_data.get('relatorios', ''),
+                    'prescricoes': parsed_data.get('prescricoes', ''),
+                    'referencias': parsed_data.get('referencias', ''),
+                    'nome_comandante': nome_comandante,
+                    'cargo_comandante': cargo_comandante
+                }
+                
+                docx_bytes = gerar_ordem_servico_docx(fields_final)
+                st.session_state['generated_docx'] = docx_bytes
+                
+                pdf_bytes = gerar_ordem_servico_pdf(fields_final)
+                st.session_state['generated_pdf'] = pdf_bytes
+                
+                st.session_state['filename_base'] = f"OS_{num_os.replace('/', '_')}_{nome_operacao.replace(' ', '_')}"
+
+            if 'generated_docx' in st.session_state:
+                st.markdown("---")
+                st.subheader("📥 Baixar Arquivo Gerado")
+                
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    st.download_button(
+                        label="📄 Baixar em Word (.docx)",
+                        data=st.session_state['generated_docx'],
+                        file_name=f"{st.session_state['filename_base']}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+                
+                with col_d2:
+                    st.download_button(
+                        label="📕 Baixar em PDF (.pdf)",
+                        data=st.session_state['generated_pdf'],
+                        file_name=f"{st.session_state['filename_base']}.pdf",
+                        mime="application/pdf"
+                    )
+        else:
+            st.error("Não foi possível extrair texto do arquivo enviado. Verifique se o PDF ou DOCX contém texto pesquisável.")
+
+
+# =========================================================
+# MÓDULO 2: SEGUNDO SITE / EXTRAJORNADA (SITE 2)
+# =========================================================
+def render_modulo_segundo_site():
+    st.title("🗓️ Programação Extrajornada e Escalas")
+    st.caption("18º Batalhão de Polícia Militar — PMPR")
+    st.write("Módulo de gestão, montagem e validação da Programação Extrajornada Voluntária.")
     
-    if texto_extraido.strip():
-        st.success("Ordem de Operação analisada com sucesso!")
-        
-        parsed_data = parsear_ordem_operacao(texto_extraido)
-        
-        st.subheader("📝 Informações da Ordem de Serviço")
-        st.write("Ajuste os campos essenciais abaixo antes de gerar os documentos:")
+    # [AQUI FICA A INTERFACE E LÓGICA DO SEU SEGUNDO SITE]
+    st.info("Módulo de Programação Extrajornada em operação. Insira seus dados ou arquivos de escala abaixo.")
+    
+    arquivo_escala = st.file_uploader("Envie a planilha/documento de escala de Extrajornada", type=["docx", "xlsx", "csv"])
+    if arquivo_escala:
+        st.success(f"Arquivo '{arquivo_escala.name}' carregado com sucesso no Módulo Extrajornada!")
 
-        col_a, col_b = st.columns(2)
-        with col_a:
-            num_os = st.text_input("Número da Ordem de Serviço (OS)", value="077")
-            num_oo = st.text_input("Ordem de Operação de Origem", value=parsed_data.get('num_oo', '000/2026'))
-        with col_b:
-            data_expedicao = st.text_input("Data de Expedição da OS", value=data_atual_extenso())
-            nome_operacao = st.text_input("Nome da Operação", value=parsed_data.get('nome_op', 'OPERAÇÃO POLICIAL'))
 
-        col_c, col_d = st.columns(2)
-        with col_c:
-            nome_comandante = st.text_input("Comandante / Assinatura", value="Ten.-Cel. QOEM PM Helder de Lima Dantas Junior")
-        with col_d:
-            cargo_comandante = st.text_input("Cargo / Função", value="Comandante do 18º BPM.")
+# =========================================================
+# TELA DE ENTRADA (PORTAL / HUB CENTRAL)
+# =========================================================
+def render_tela_entrada():
+    if caminho_brasao:
+        c1, c2, c3 = st.columns(3)
+        with c2:
+            st.image(caminho_brasao, width=130)
 
-        st.session_state['parsed_full_data'] = parsed_data
+    st.markdown("<h1 style='text-align: center;'>🛡️ Portal Operacional — 18º BPM</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #9CA3AF;'>Selecione abaixo o sistema que deseja acessar:</p>", unsafe_allow_html=True)
+    st.write("")
 
-        if st.button("🚀 Gerar Ordem de Serviço (Word e PDF)"):
-            fields_final = {
-                'num_os': num_os,
-                'num_oo': num_oo,
-                'data_expedicao': data_expedicao,
-                'nome_operacao': nome_operacao,
-                'finalidade': parsed_data.get('finalidade', ''),
-                'informacoes_gerais': parsed_data.get('informacoes_gerais', ''),
-                'missao': parsed_data.get('missao', ''),
-                'execucao': parsed_data.get('execucao', ''),
-                'logistica': parsed_data.get('logistica', ''),
-                'relatorios': parsed_data.get('relatorios', ''),
-                'prescricoes': parsed_data.get('prescricoes', ''),
-                'referencias': parsed_data.get('referencias', ''),
-                'nome_comandante': nome_comandante,
-                'cargo_comandante': cargo_comandante
-            }
-            
-            docx_bytes = gerar_ordem_servico_docx(fields_final)
-            st.session_state['generated_docx'] = docx_bytes
-            
-            pdf_bytes = gerar_ordem_servico_pdf(fields_final)
-            st.session_state['generated_pdf'] = pdf_bytes
-            
-            st.session_state['filename_base'] = f"OS_{num_os.replace('/', '_')}_{nome_operacao.replace(' ', '_')}"
+    col_s1, col_s2 = st.columns(2)
 
-        if 'generated_docx' in st.session_state:
-            st.markdown("---")
-            st.subheader("📥 Baixar Arquivo Gerado")
-            
-            col_d1, col_d2 = st.columns(2)
-            with col_d1:
-                st.download_button(
-                    label="📄 Baixar em Word (.docx)",
-                    data=st.session_state['generated_docx'],
-                    file_name=f"{st.session_state['filename_base']}.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                )
-            
-            with col_d2:
-                st.download_button(
-                    label="📕 Baixar em PDF (.pdf)",
-                    data=st.session_state['generated_pdf'],
-                    file_name=f"{st.session_state['filename_base']}.pdf",
-                    mime="application/pdf"
-                )
-    else:
-        st.error("Não foi possível extrair texto do arquivo enviado. Verifique se o PDF ou DOCX contém texto pesquisável.")
+    with col_s1:
+        st.markdown("""
+        <div class="portal-card">
+            <h3>📑 Gerador de OS</h3>
+            <p>Extração automática de dados de Ordens de Operação e geração padronizada de Ordens de Serviço em Word e PDF.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("Acessar Gerador de OS ➔", key="btn_os"):
+            st.session_state.pagina_atual = "gerador_os"
+            st.rerun()
+
+    with col_s2:
+        st.markdown("""
+        <div class="portal-card">
+            <h3>🗓️ Extrajornada / Escalas</h3>
+            <p>Gestão, conferência e montagem da programação de escalas de serviço extrajornada voluntária do 18º BPM.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("Acessar Extrajornada ➔", key="btn_extrajornada"):
+            st.session_state.pagina_atual = "segundo_site"
+            st.rerun()
+
+
+# =========================================================
+# ROTEADOR DE NAVEGAÇÃO CENTRAL
+# =========================================================
+
+# Botão de retorno ao Portal na barra lateral (apenas quando dentro de um módulo)
+if st.session_state.pagina_atual != "portal":
+    with st.sidebar:
+        if caminho_brasao:
+            st.image(caminho_brasao, width=90)
+        st.write("### 🧭 Navegação")
+        if st.button("⬅️ Voltar ao Portal Principal"):
+            st.session_state.pagina_atual = "portal"
+            st.rerun()
+        st.markdown("---")
+
+# Renderização condicional conforme a página selecionada
+if st.session_state.pagina_atual == "portal":
+    render_tela_entrada()
+elif st.session_state.pagina_atual == "gerador_os":
+    render_modulo_gerador_os()
+elif st.session_state.pagina_atual == "segundo_site":
+    render_modulo_segundo_site()
