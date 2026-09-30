@@ -96,7 +96,7 @@ def gerar_css_app(caminho_img):
 
 st.markdown(gerar_css_app(caminho_brasao), unsafe_allow_html=True)
 
-# 🏷️ ASSINATURA MOVIDA PARA A ESQUERDA
+# 🏷️ ASSINATURA
 st.markdown("""
 <div style="position: fixed; bottom: 15px; right: 140px; text-align: right; color: #9CA3AF; font-size: 12px; font-family: sans-serif; z-index: 999999; line-height: 1.4; background-color: rgba(14, 17, 23, 0.9); padding: 6px 12px; border-radius: 6px; border: 1px solid #2E364A;">
     Desenvolvido por:<br>
@@ -154,11 +154,13 @@ def set_cell_bg(cell, fill_hex):
     tcPr.append(shd)
 
 def limpar_assinaturas_e_ruidos(texto):
-    """Remove assinaturas eletrônicas, hash, e-Protocolo e números de páginas"""
+    """Remove totalmente assinaturas eletrônicas, marcas digitais, hash, e-Protocolo e páginas"""
     if not texto:
         return ""
     
     padroes_lixo = [
+        r'\\(?Assinado\s+eletronicamente\\)?.*',
+        r'Assinado\s+eletronicamente.*',
         r'Documento\s+assinado\s+digitalmente.*',
         r'Inserido\s+ao\s+protocolo.*',
         r'conforme\s+MP\s+n[º°\.]?\s*2\.?200-2/2001.*',
@@ -168,6 +170,7 @@ def limpar_assinaturas_e_ruidos(texto):
         r'Código\s+de\s+autenticidade:.*',
         r'Assinado\s+eletronicamente\s+por:.*',
         r'Assinatura\s+Qualificada\s+efetuada\s+por:.*',
+        r'Assinatura\s+digital.*',
         r'Chave\s+de\s+Autenticação:.*',
         r'Para\s+verificar\s+a\s+autenticidade.*',
         r'e-Protocolo\s*\d+.*',
@@ -239,6 +242,21 @@ def safe_crop_text(page, y0, y1):
     except Exception:
         return ""
 
+def is_real_data_table(extracted_tbl):
+    """
+    Verifica se a estrutura extraída é de fato uma tabela com 2+ colunas de dados tabulares.
+    Descarte caixas de texto com bordas ou quadros de coluna única.
+    """
+    if not extracted_tbl or len(extracted_tbl) == 0:
+        return False
+    max_cols = 0
+    for row in extracted_tbl:
+        if row:
+            non_empty = [c for c in row if c is not None and str(c).strip() != ""]
+            if len(non_empty) > max_cols:
+                max_cols = len(non_empty)
+    return max_cols >= 2
+
 def extrair_texto_arquivo(uploaded_file):
     ext = uploaded_file.name.split(".")[-1].lower()
     text = ""
@@ -281,13 +299,22 @@ def extrair_texto_arquivo(uploaded_file):
                         
                         extracted_tbl = t.extract()
                         if extracted_tbl:
-                            table_lines = []
-                            for row in extracted_tbl:
-                                if row and any(c is not None and str(c).strip() != "" for c in row):
-                                    clean_row = [str(c).replace('\n', ' ').strip() if c is not None else "" for c in row]
-                                    table_lines.append(" | ".join(clean_row))
-                            if table_lines:
-                                page_content.append("\n".join(table_lines))
+                            if is_real_data_table(extracted_tbl):
+                                table_lines = []
+                                for row in extracted_tbl:
+                                    if row and any(c is not None and str(c).strip() != "" for c in row):
+                                        clean_row = [str(c).replace('\n', ' ').strip() if c is not None else "" for c in row]
+                                        table_lines.append(" | ".join(clean_row))
+                                if table_lines:
+                                    page_content.append("\n".join(table_lines))
+                            else:
+                                plain_lines = []
+                                for row in extracted_tbl:
+                                    for cell in row:
+                                        if cell and str(cell).strip():
+                                            plain_lines.append(str(cell).strip())
+                                if plain_lines:
+                                    page_content.append("\n".join(plain_lines))
                         
                         last_top = max(last_top, tbottom)
                     
@@ -309,13 +336,19 @@ def extrair_texto_arquivo(uploaded_file):
                     items.append(p.text.strip())
             elif element.tag.endswith('tbl'):
                 tbl = docx.table.Table(element, doc)
-                table_lines = []
+                table_matrix = []
                 for row in tbl.rows:
                     row_cells = [c.text.replace('\n', ' ').strip() for c in row.cells]
                     if any(cell for cell in row_cells):
-                        table_lines.append(" | ".join(row_cells))
-                if table_lines:
-                    items.append("\n".join(table_lines))
+                        table_matrix.append(row_cells)
+                
+                if table_matrix:
+                    if is_real_data_table(table_matrix):
+                        table_lines = [" | ".join(r) for r in table_matrix]
+                        items.append("\n".join(table_lines))
+                    else:
+                        plain_lines = [" ".join([c for c in r if c]) for r in table_matrix]
+                        items.append("\n".join(plain_lines))
         text = "\n\n".join(items)
         uploaded_file.seek(0)
         
@@ -468,7 +501,7 @@ def parsear_ordem_operacao(texto):
     else:
         dados['relatorios'] = f"Os resultados obtidos deverão ser lançados no SISGCOP{' sob o código ' + num_sisgcop if num_sisgcop else ''} até o término da operação. Confecção dos Boletins de Ocorrência (BOU) no SADE."
 
-    # 7. PRESCRIÇÕES DIVERSAS (Garantia de Formato em Texto)
+    # 7. PRESCRIÇÕES DIVERSAS
     p = extrair_secao_flexivel(texto, r'PRESCRIÇÕES\s+DIVERSAS|PRESCRIÇÕES', [r'REFERÊNCIAS', r'DISTRIBUIÇÃO'])
     if p:
         p = normalizar_subnumeracao_secao(p, 7)
@@ -518,7 +551,7 @@ def renderizar_conteudo_docx(doc, conteudo):
             i += 1
             continue
             
-        # Tabela detectada apenas se o material original possuir tabela separada por '|'
+        # Apenas constrói tabela se houver 2 ou mais colunas de dados com '|'
         if '|' in linha:
             tabela_linhas = []
             while i < len(linhas) and '|' in linhas[i]:
@@ -533,39 +566,51 @@ def renderizar_conteudo_docx(doc, conteudo):
                 
             if tabela_linhas:
                 max_cols = max(len(r) for r in tabela_linhas)
-                for r_data in tabela_linhas:
-                    while len(r_data) < max_cols:
-                        r_data.append("")
-
-                tbl = doc.add_table(rows=len(tabela_linhas), cols=max_cols)
-                tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
-                tbl.style = 'Table Grid'
-                
-                for r_idx, row_data in enumerate(tabela_linhas):
-                    row_cells = tbl.rows[r_idx].cells
-                    for c_idx, cell_value in enumerate(row_data):
-                        if c_idx < len(row_cells):
-                            cell = row_cells[c_idx]
-                            p = cell.paragraphs[0] if cell.paragraphs else cell.add_paragraph()
-                            p.paragraph_format.space_before = Pt(3)
-                            p.paragraph_format.space_after = Pt(3)
-                            p.paragraph_format.line_spacing = 1.15
-                            
-                            r = p.add_run(cell_value)
+                if max_cols < 2:
+                    for r_data in tabela_linhas:
+                        txt_line = " ".join([c for c in r_data if c])
+                        if txt_line.strip():
+                            p = doc.add_paragraph()
+                            p.paragraph_format.line_spacing = 1.2
+                            p.paragraph_format.space_before = Pt(0)
+                            p.paragraph_format.space_after = Pt(6)
+                            r = p.add_run(txt_line.strip())
                             r.font.name = "Arial"
-                            
-                            if r_idx == 0:
-                                set_cell_bg(cell, "002060")
-                                r.bold = True
-                                r.font.size = Pt(9.5)
-                                r.font.color.rgb = RGBColor(255, 255, 255)
-                            else:
-                                if r_idx % 2 == 1:
-                                    set_cell_bg(cell, "F8FAFC")
-                                r.font.size = Pt(9.0)
-                                r.font.color.rgb = RGBColor(30, 41, 59)
-                p_sp = doc.add_paragraph()
-                p_sp.paragraph_format.space_after = Pt(4)
+                            r.font.size = Pt(10)
+                else:
+                    for r_data in tabela_linhas:
+                        while len(r_data) < max_cols:
+                            r_data.append("")
+
+                    tbl = doc.add_table(rows=len(tabela_linhas), cols=max_cols)
+                    tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+                    tbl.style = 'Table Grid'
+                    
+                    for r_idx, row_data in enumerate(tabela_linhas):
+                        row_cells = tbl.rows[r_idx].cells
+                        for c_idx, cell_value in enumerate(row_data):
+                            if c_idx < len(row_cells):
+                                cell = row_cells[c_idx]
+                                p = cell.paragraphs if cell.paragraphs else cell.add_paragraph()
+                                p.paragraph_format.space_before = Pt(3)
+                                p.paragraph_format.space_after = Pt(3)
+                                p.paragraph_format.line_spacing = 1.15
+                                
+                                r = p.add_run(cell_value)
+                                r.font.name = "Arial"
+                                
+                                if r_idx == 0:
+                                    set_cell_bg(cell, "002060")
+                                    r.bold = True
+                                    r.font.size = Pt(9.5)
+                                    r.font.color.rgb = RGBColor(255, 255, 255)
+                                else:
+                                    if r_idx % 2 == 1:
+                                        set_cell_bg(cell, "F8FAFC")
+                                    r.font.size = Pt(9.0)
+                                    r.font.color.rgb = RGBColor(30, 41, 59)
+                    p_sp = doc.add_paragraph()
+                    p_sp.paragraph_format.space_after = Pt(4)
             continue
             
         p = doc.add_paragraph()
@@ -615,17 +660,17 @@ def gerar_ordem_servico_docx(fields):
     table_hdr.autofit = False
     table_hdr.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    table_hdr.columns[0].width = Inches(3.5)
-    table_hdr.columns[1].width = Inches(3.0)
+    table_hdr.columns.width = Inches(3.5)
+    table_hdr.columns.width = Inches(3.0)
     
-    row0 = table_hdr.rows[0]
-    cell_left = row0.cells[0]
-    cell_right = row0.cells[1]
+    row0 = table_hdr.rows
+    cell_left = row0.cells
+    cell_right = row0.cells
     
     cell_left.width = Inches(3.5)
     cell_right.width = Inches(3.0)
 
-    p_left = cell_left.paragraphs[0]
+    p_left = cell_left.paragraphs
     p_left.paragraph_format.space_after = Pt(2)
     p_left.paragraph_format.line_spacing = 1.2
     r_l = p_left.add_run("PMPR\n2º CRPM/18º BPM\nP/3")
@@ -633,7 +678,7 @@ def gerar_ordem_servico_docx(fields):
     r_l.font.name = "Arial"
     r_l.font.size = Pt(10)
 
-    p_right = cell_right.paragraphs[0]
+    p_right = cell_right.paragraphs
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.paragraph_format.space_after = Pt(2)
     p_right.paragraph_format.line_spacing = 1.2
@@ -681,15 +726,11 @@ def gerar_ordem_servico_docx(fields):
 
         renderizar_conteudo_docx(doc, conteudo)
 
+    # Assinatura limpa do Comandante sem menção eletrônica
     p_ass = doc.add_paragraph()
     p_ass.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p_ass.paragraph_format.space_before = Pt(28)
     p_ass.paragraph_format.space_after = Pt(4)
-    
-    r_ass1 = p_ass.add_run("(Assinado eletronicamente)\n")
-    r_ass1.italic = True
-    r_ass1.font.name = "Arial"
-    r_ass1.font.size = Pt(10)
 
     r_ass2 = p_ass.add_run(f"{fields.get('nome_comandante', 'Ten.-Cel. QOEM PM Helder de Lima Dantas Junior')},\n")
     r_ass2.bold = True
@@ -737,36 +778,38 @@ def renderizar_conteudo_pdf(story, conteudo, style_subnum, style_body, style_tab
                 
             if tabela_linhas:
                 max_cols = max(len(r) for r in tabela_linhas)
-                for r_data in tabela_linhas:
-                    while len(r_data) < max_cols:
-                        r_data.append("")
-
-                col_w = (6.4 * inch) / max_cols
-                
-                pdf_table_data = []
-                for r_idx, r_data in enumerate(tabela_linhas):
-                    row_p = []
-                    for c_val in r_data:
-                        c_clean = c_val.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                        if r_idx == 0:
-                            p_cell = Paragraph(f"<b><font color='white'>{c_clean}</font></b>", style_table_hdr)
-                        else:
-                            p_cell = Paragraph(c_clean, style_body)
-                        row_p.append(p_cell)
-                    pdf_table_data.append(row_p)
-                
-                tbl = Table(pdf_table_data, colWidths=[col_w]*max_cols)
-                tbl.setStyle(TableStyle([
-                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#002060')),
-                    ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#A0AAB5')),
-                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                    ('TOPPADDING', (0,0), (-1,-1), 4),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-                    ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F8FAFC')])
-                ]))
-                story.append(Spacer(1, 4))
-                story.append(tbl)
-                story.append(Spacer(1, 6))
+                if max_cols < 2:
+                    for r_data in tabela_linhas:
+                        txt_line = " ".join([c for c in r_data if c])
+                        if txt_line.strip():
+                            story.append(Paragraph(txt_line.strip().replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;'), style_body))
+                else:
+                    col_w = (6.4 * inch) / max_cols
+                    
+                    pdf_table_data = []
+                    for r_idx, r_data in enumerate(tabela_linhas):
+                        row_p = []
+                        for c_val in r_data:
+                            c_clean = c_val.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                            if r_idx == 0:
+                                p_cell = Paragraph(f"<b><font color='white'>{c_clean}</font></b>", style_table_hdr)
+                            else:
+                                p_cell = Paragraph(c_clean, style_body)
+                            row_p.append(p_cell)
+                        pdf_table_data.append(row_p)
+                    
+                    tbl = Table(pdf_table_data, colWidths=[col_w]*max_cols)
+                    tbl.setStyle(TableStyle([
+                        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#002060')),
+                        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#A0AAB5')),
+                        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                        ('TOPPADDING', (0,0), (-1,-1), 4),
+                        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F8FAFC')])
+                    ]))
+                    story.append(Spacer(1, 4))
+                    story.append(tbl)
+                    story.append(Spacer(1, 6))
             continue
             
         l_clean = linha.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
@@ -845,7 +888,6 @@ def gerar_ordem_servico_pdf(fields):
         renderizar_conteudo_pdf(story, conteudo, style_subnum_title, style_body, style_table_hdr)
     
     story.append(Spacer(1, 20))
-    story.append(Paragraph("<i>(Assinado eletronicamente)</i>", style_ass))
     story.append(Paragraph(f"<b>{fields.get('nome_comandante', 'Ten.-Cel. QOEM PM Helder de Lima Dantas Junior')}</b>,", style_ass))
     story.append(Paragraph(f"<b>{fields.get('cargo_comandante', 'Comandante do 18º BPM.')}</b>", style_ass))
 
